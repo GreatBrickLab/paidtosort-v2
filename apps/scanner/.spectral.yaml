@@ -1,0 +1,28 @@
+extends: ["spectral:oas"]
+rules:
+  operation-tag-defined: error
+  operation-operationId: error
+  oas3-unused-component: warn
+  pts-snake-case-properties:
+    description: JSON property names are snake_case
+    severity: error
+    given: "$.components.schemas..properties"
+    then:
+      field: "@key"
+      function: pattern
+      functionOptions:
+        match: "^[a-z][a-z0-9_]*$"
+  pts-writes-need-idempotency-key:
+    description: Every POST/PATCH takes an Idempotency-Key header
+    severity: error
+    given: "$.paths[*][post,patch]"
+    then:
+      field: parameters
+      function: truthy
+  pts-every-operation-documents-401:
+    description: Every route needs an API key, so every route documents 401
+    severity: error
+    given: "$.paths[*][get,post,patch,delete].responses"
+    then:
+      field: "401"
+      function: truthy

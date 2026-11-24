@@ -1,0 +1,5 @@
+# ADR 0008: Ship into pts-v2 as `apps/scanner/` plus a prebuilt Pages bundle
+Date: 2026-11-24 · Status: proposed (Web Boss decides at PR review)
+**Decision.** The scanner lives in pts-v2 under `apps/scanner/` (TypeScript source, tests, generated contract). `functions/api/[[path]].js` imports `apps/scanner/pages-bundle/scanner.mjs`, a minified esbuild bundle (~660 KB, ~150 KB gzip) built by `npm run bundle:pages`, and sends `/api/v1/scanner/*` to it.
+**Reason.** pts-v2 is plain Pages Functions JS with no `package.json` and no `npm install` step in its required `check` CI. A prebuilt bundle drops in without changing that job; the source next to it keeps it reviewable. The scanner contract is merged into `spec/openapi.json` by `scripts/merge-platform-spec.mjs`, so the platform spec stays the single document the docs page and contract test read.
+**Consequence.** A bundle can drift from its source; the optional `scanner` CI job (handoff/0002) rebuilds it and fails on any diff. When pts-v2 gets a build step (or moves to Hono itself), the bundle goes away.

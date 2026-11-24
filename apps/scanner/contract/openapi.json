@@ -1,0 +1,5432 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Paid to Sort v2 API: Part Scanner section",
+    "version": "0.1.0-draft1",
+    "contact": {
+      "name": "Part Scanner v2 (paidtosort staff tools)",
+      "url": "https://paidtosort.com"
+    },
+    "description": "**DRAFT 1** (Chris's process: draft → review → rebuilt twice into a clean final spec). Local work in progress; not deployed.\n\nShaped to merge into pts-v2's `/api/v1/openapi.json` (server `/api/v1`, paths under `/scanner/`, operationIds and components prefixed `scanner`/`Scanner`).\n\nEvery request needs an API key (`Authorization: Bearer …`). Identity, roles and keys belong to Accounts and Security; the scanner only reads the scopes A&S gives it.\n\nEvery POST/PATCH needs `Idempotency-Key`. Errors are RFC 9457 `application/problem+json` with `code` and `request_id`. Lists use `limit` + `cursor`. snake_case, UTC ISO 8601, money in integer cents with `currency`.\n\nPhotos are never uploaded or stored; one small crop per part is named on the server by the free recognizer tier and held in memory for that call only."
+  },
+  "servers": [
+    {
+      "url": "/api/v1",
+      "description": "Platform base (pts-v2)"
+    },
+    {
+      "url": "http://127.0.0.1:4794/api/v1",
+      "description": "Local wrangler dev (--local)"
+    }
+  ],
+  "security": [
+    {
+      "api_key": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "scanner-me",
+      "description": "Who the calling key belongs to, with role and scopes."
+    },
+    {
+      "name": "scanner-batches",
+      "description": "A sorter's batches: create, rename, finish, reopen, mark processed."
+    },
+    {
+      "name": "scanner-sync",
+      "description": "The batch event log, for offline devices and resume."
+    },
+    {
+      "name": "scanner-drawers",
+      "description": "Drawer labels scanned into a batch."
+    },
+    {
+      "name": "scanner-photos",
+      "description": "Photo counts only; photos are never uploaded."
+    },
+    {
+      "name": "scanner-cards",
+      "description": "One card per found part: crop → name, edit, decide."
+    },
+    {
+      "name": "scanner-minifigs",
+      "description": "Minifig part-out, hold and need-help."
+    },
+    {
+      "name": "scanner-exports",
+      "description": "BrickStore (BSX), CSV and JSON exports of approved lots (admin)."
+    },
+    {
+      "name": "scanner-finds",
+      "description": "Team lists: held figs and Parts We Need finds."
+    },
+    {
+      "name": "scanner-meta",
+      "description": "The scanner section of the OpenAPI spec."
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "api_key": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Every caller needs a key. Issued and verified by Accounts and Security (no partner role yet; a scoped partner key (for example for Bricqer) can be added later because every query is owner-scoped). Local tests use fake `pts_test_…` tokens."
+      }
+    },
+    "schemas": {
+      "ScannerMe": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "enum": [
+              "me"
+            ]
+          },
+          "user": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "sorter",
+                  "team",
+                  "admin"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "role"
+            ]
+          },
+          "key": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "test",
+                  "live"
+                ]
+              },
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ApiKeyScope"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "mode",
+              "scopes"
+            ]
+          }
+        },
+        "required": [
+          "object",
+          "user",
+          "key"
+        ],
+        "description": "Echo of what the auth layer (owned by Accounts and Security) said about this caller."
+      },
+      "ApiKeyScope": {
+        "type": "string",
+        "enum": [
+          "scan:write",
+          "batches:read",
+          "batches:read_all",
+          "exports:create",
+          "batches:process"
+        ]
+      },
+      "Problem": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "format": "uri"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "minimum": 400,
+            "maximum": 599
+          },
+          "code": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "need": {
+            "type": "string",
+            "description": "Missing scope, or `owner`"
+          },
+          "batch_id": {
+            "$ref": "#/components/schemas/ScannerBatchId"
+          },
+          "card_id": {
+            "$ref": "#/components/schemas/ScannerCardId"
+          },
+          "first_card_id": {
+            "$ref": "#/components/schemas/ScannerCardId"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "retry_after_s": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "hourly",
+                  "minute"
+                ]
+              },
+              {
+                "type": "integer"
+              }
+            ]
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "field",
+                "message"
+              ]
+            }
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "request_id"
+        ],
+        "additionalProperties": {},
+        "description": "RFC 9457 problem details with `code` and `request_id` extension members (one error contract, platform base #5)"
+      },
+      "ScannerBatchId": {
+        "type": "string",
+        "pattern": "^bat_[A-Za-z0-9]{10,32}$",
+        "example": "bat_7Qm2xK9pLw3RtY8v"
+      },
+      "ScannerCardId": {
+        "type": "string",
+        "pattern": "^crd_[A-Za-z0-9]{10,32}$",
+        "example": "crd_91LxQ2mZr8TnVb4c"
+      },
+      "ScannerBatchList": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "enum": [
+              "list"
+            ]
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScannerBatch"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "object",
+          "data",
+          "has_more",
+          "next_cursor"
+        ]
+      },
+      "ScannerBatch": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ScannerBatchId"
+          },
+          "object": {
+            "type": "string",
+            "enum": [
+              "batch"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 60
+          },
+          "status": {
+            "$ref": "#/components/schemas/ScannerBatchStatus"
+          },
+          "condition": {
+            "$ref": "#/components/schemas/ScannerCondition"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "owner": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ]
+          },
+          "counts": {
+            "$ref": "#/components/schemas/ScannerBatchCounts"
+          },
+          "estimated_value_cents": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Batch value from Parts and Orders data, shown to everyone. null when unknown."
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "USD"
+            ]
+          },
+          "current_drawer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScannerDrawerCode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "exports": {
+            "type": "integer"
+          },
+          "last_seq": {
+            "type": "integer"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "processed_at": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "drawers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScannerDrawer"
+            },
+            "description": "Only with expand[]=drawers"
+          },
+          "cards": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScannerCard"
+            },
+            "description": "Only with expand[]=cards"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "name",
+          "status",
+          "condition",
+          "note",
+          "owner",
+          "counts",
+          "estimated_value_cents",
+          "currency",
+          "current_drawer",
+          "exports",
+          "last_seq",
+          "created_at",
+          "updated_at",
+          "finished_at",
+          "processed_at"
+        ],
+        "additionalProperties": false
+      },
+      "ScannerBatchStatus": {
+        "type": "string",
+        "enum": [
+          "open",
+          "finished",
+          "processed"
+        ]
+      },
+      "ScannerCondition": {
+        "type": "string",
+        "enum": [
+          "U",
+          "N"
+        ],
+        "description": "U = used, N = new"
+      },
+      "ScannerBatchCounts": {
+        "type": "object",
+        "properties": {
+          "cards": {
+            "type": "integer"
+          },
+          "undecided": {
+            "type": "integer"
+          },
+          "decided": {
+            "type": "integer"
+          },
+          "approved": {
+            "type": "integer"
+          },
+          "dropped": {
+            "type": "integer"
+          },
+          "set_aside": {
+            "type": "integer"
+          },
+          "unknown": {
+            "type": "integer"
+          },
+          "parted_out": {
+            "type": "integer"
+          },
+          "held": {
+            "type": "integer"
+          },
+          "check_by_hand": {
+            "type": "integer"
+          },
+          "no_match": {
+            "type": "integer"
+          },
+          "error": {
+            "type": "integer"
+          },
+          "lots": {
+            "type": "integer"
+          },
+          "parts": {
+            "type": "integer"
+          },
+          "drawers": {
+            "type": "integer"
+          },
+          "photos": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cards",
+          "undecided",
+          "decided",
+          "approved",
+          "dropped",
+          "set_aside",
+          "unknown",
+          "parted_out",
+          "held",
+          "check_by_hand",
+          "no_match",
+          "error",
+          "lots",
+          "parts",
+          "drawers",
+          "photos"
+        ]
+      },
+      "ScannerDrawerCode": {
+        "type": "string",
+        "pattern": "^[A-Z0-9][A-Z0-9 ._-]{0,23}$",
+        "description": "UPPER case. Typed or scanned codes match without regard to case.",
+        "example": "TEST-A1"
+      },
+      "Timestamp": {
+        "type": "string",
+        "format": "date-time",
+        "description": "UTC, ISO 8601",
+        "example": "2026-11-24T17:25:00Z"
+      },
+      "ScannerDrawer": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "enum": [
+              "drawer"
+            ]
+          },
+          "code": {
+            "$ref": "#/components/schemas/ScannerDrawerCode"
+          },
+          "is_current": {
+            "type": "boolean"
+          },
+          "order": {
+            "type": "integer"
+          },
+          "cards": {
+            "type": "integer"
+          },
+          "photos": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "object",
+          "code",
+          "is_current",
+          "order",
+          "cards",
+          "photos"
+        ],
+        "additionalProperties": false
+      },
+      "ScannerCard": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ScannerCardId"
+          },
+          "object": {
+            "type": "string",
+            "enum": [
+              "card"
+            ]
+          },
+          "batch_id": {
+            "$ref": "#/components/schemas/ScannerBatchId"
+          },
+          "photo_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScannerPhotoId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "photo_number": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "For \"Photo 1 · box 4\""
+          },
+          "box": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "drawer_code": {
+            "$ref": "#/components/schemas/ScannerDrawerCode"
+          },
+          "parent_card_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScannerCardId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "item_type": {
+            "type": "string",
+            "enum": [
+              "P",
+              "M"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/ScannerCardState"
+          },
+          "identify": {
+            "$ref": "#/components/schemas/ScannerIdentify"
+          },
+          "pick": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 4
+          },
+          "chosen": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScannerCandidate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "qty": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9999
+          },
+          "color_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "colors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScannerColor"
+            },
+            "maxItems": 3,
+            "description": "Top 3 colors, limited to colors that exist for the part"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "badges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScannerBadge"
+            }
+          },
+          "allowed_decisions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScannerDecision"
+            }
+          },
+          "held": {
+            "type": "boolean"
+          },
+          "hold_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "missing_piece",
+              "other",
+              null
+            ]
+          },
+          "help_text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "merges_into": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScannerCardId"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The earlier approved card this one adds to (\"+2 to existing lot\")"
+          },
+          "minifig": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "fig_value_cents": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "part_out_value_cents": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "currency": {
+                "type": "string",
+                "enum": [
+                  "USD"
+                ]
+              },
+              "suggestion": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "keep",
+                  "part_out",
+                  null
+                ]
+              }
+            },
+            "required": [
+              "fig_value_cents",
+              "part_out_value_cents",
+              "currency",
+              "suggestion"
+            ],
+            "description": "Minifig values are shown to everyone. null for parts."
+          },
+          "value_cents": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Per-part value, only with include[]=values (a sorter setting, off by default)"
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "USD"
+            ]
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "batch_id",
+          "photo_id",
+          "photo_number",
+          "box",
+          "drawer_code",
+          "parent_card_id",
+          "item_type",
+          "state",
+          "identify",
+          "pick",
+          "chosen",
+          "qty",
+          "color_id",
+          "colors",
+          "note",
+          "badges",
+          "allowed_decisions",
+          "held",
+          "hold_reason",
+          "help_text",
+          "merges_into",
+          "minifig",
+          "created_at",
+          "updated_at"
+        ],
+        "additionalProperties": false
+      },
+      "ScannerPhotoId": {
+        "type": "string",
+        "pattern": "^pho_[A-Za-z0-9]{10,32}$",
+        "example": "pho_Hn3kW8qZ2xPm5RtL"
+      },
+      "ScannerCardState": {
+        "type": "string",
+        "enum": [
+          "identifying",
+          "pending",
+          "check_by_hand",
+          "no_match",
+          "error",
+          "approved",
+          "dropped",
+          "set_aside",
+          "unknown",
+          "parted_out"
+        ]
+      },
+      "ScannerIdentify": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "none",
+              "error",
+              "identifying"
+            ]
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScannerCandidate"
+            },
+            "maxItems": 5
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "recognizer",
+              "part_out"
+            ]
+          },
+          "error_code": {
+            "type": "string",
+            "enum": [
+              "id_service_busy",
+              "id_service_error",
+              "id_service_timeout"
+            ]
+          },
+          "retry_after_s": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "ScannerCandidate": {
+        "type": "object",
+        "properties": {
+          "part_no": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "item_type": {
+            "type": "string",
+            "enum": [
+              "P",
+              "M"
+            ],
+            "description": "P = part, M = minifig"
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": [
+          "part_no",
+          "name",
+          "item_type",
+          "score"
+        ]
+      },
+      "ScannerColor": {
+        "type": "object",
+        "properties": {
+          "color_id": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "score": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": [
+          "color_id",
+          "name",
+          "score"
+        ]
+      },
+      "ScannerBadge": {
+        "type": "string",
+        "enum": [
+          "new_lot",
+          "check_color",
+          "check_mold",
+          "rare_1",
+          "rare_5",
+          "rare_20",
+          "parts_we_need"
+        ]
+      },
+      "ScannerDecision": {
+        "type": "string",
+        "enum": [
+          "approved",
+          "dropped",
+          "set_aside",
+          "unknown"
+        ]
+      },
+      "ScannerCreateBatchRequest": {
+        "type": "object",
+        "properties": {
+          "condition": {
+            "$ref": "#/components/schemas/ScannerCondition"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "condition"
+        ],
+        "additionalProperties": false
+      },
+      "ScannerUpdateBatchRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "additionalProperties": false
+      },
+      "ScannerFinishSummary": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "enum": [
+              "finish_summary"
+            ]
+          },
+          "batch": {
+            "$ref": "#/components/schemas/ScannerBatch"
+          },
+          "parts": {
+            "type": "integer"
+          },
+          "lots": {
+            "type": "integer"
+          },
+          "drawers": {
+            "type": "integer"
+          },
+          "new_lots": {
+            "type": "integer"
+          },
+          "held_figs": {
+            "type": "integer"
+          },
+          "estimated_value_cents": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "USD"
+            ]
+          }
+        },
+        "required": [
+          "object",
+          "batch",
+          "parts",
+          "lots",
+          "drawers",
+          "new_lots",
+          "held_figs",
+          "estimated_value_cents",
+          "currency"
+        ]
+      },
+      "ScannerEventList": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "enum": [
+              "list"
+            ]
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScannerEvent"
+            }
+          },
+          "last_seq": {
+            "type": "integer"
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "object",
+          "data",
+          "last_seq",
+          "has_more",
+          "next_cursor"
+        ]
+      },
+      "ScannerEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^evt_"
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "type": {
+            "$ref": "#/components/schemas/ScannerEventType"
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "key_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "device_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "type",
+          "payload",
+          "user_id",
+          "key_id",
+          "device_id",
+          "at"
+        ]
+      },
+      "ScannerEventType": {
+        "type": "string",
+        "enum": [
+          "batch.created",
+          "batch.renamed",
+          "batch.noted",
+          "drawer.opened",
+          "photo.taken",
+          "card.added",
+          "card.updated",
+          "card.edited",
+          "card.decided",
+          "card.reopened",
+          "batch.finished",
+          "batch.reopened",
+          "batch.exported",
+          "batch.processed"
+        ]
+      },
+      "ScannerAppendEventsResponse": {
+        "type": "object",
+        "properties": {
+          "acks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "client_event_id": {
+                  "type": "string"
+                },
+                "seq": {
+                  "type": "integer"
+                },
+                "replayed": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "client_event_id",
+                "seq",
+                "replayed"
+              ]
+            }
+          },
+          "rejected": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "client_event_id": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "client_event_id",
+                "reason"
+              ]
+            }
+          },
+          "last_seq": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "acks",
+          "rejected",
+          "last_seq"
+        ]
+      },
+      "ScannerAppendEventsRequest": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "client_event_id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_.:-]{8,200}$"
+                },
+                "type": {
+                  "type": "string",
+                  "maxLength": 40,
+                  "description": "Allowed from a device: batch.renamed, batch.noted, drawer.opened, photo.taken, card.edited, card.decided, card.reopened. Anything else comes back in `rejected`."
+                },
+                "device_id": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "payload": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "client_event_id",
+                "type",
+                "payload"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 200
+          }
+        },
+        "required": [
+          "events"
+        ],
+        "additionalProperties": false
+      },
+      "ScannerDrawerList": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "enum": [
+              "list"
+            ]
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScannerDrawer"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "object",
+          "data",
+          "has_more",
+          "next_cursor"
+        ]
+      },
+      "ScannerOpenDrawerRequest": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "description": "Any case; spaces trimmed",
+            "example": "test-a1"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "ScannerPhoto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ScannerPhotoId"
+          },
+          "object": {
+            "type": "string",
+            "enum": [
+              "photo"
+            ]
+          },
+          "number": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "drawer_code": {
+            "$ref": "#/components/schemas/ScannerDrawerCode"
+          },
+          "boxes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "number",
+          "drawer_code",
+          "boxes"
+        ],
+        "additionalProperties": false
+      },
+      "ScannerRecordPhotoRequest": {
+        "type": "object",
+        "properties": {
+          "drawer_code": {
+            "type": "string",
+            "maxLength": 40,
+            "description": "Defaults to the current drawer"
+          },
+          "boxes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "description": "Boxes kept after Looks good"
+          }
+        },
+        "required": [
+          "boxes"
+        ],
+        "additionalProperties": false
+      },
+      "ScannerCardList": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "enum": [
+              "list"
+            ]
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScannerCard"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "object",
+          "data",
+          "has_more",
+          "next_cursor"
+        ]
+      },
+      "ScannerCreateCardForm": {
+        "type": "object",
+        "properties": {
+          "crop": {
+            "type": "string",
+            "format": "binary",
+            "description": "One cropped part, max 300 KB. Held in memory for one call, never stored."
+          },
+          "meta": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "JSON text: {\"photo_id\":\"pho_…\",\"box\":4,\"drawer_code\":\"test-a1\",\"kind\":\"part\"|\"fig\"}",
+            "example": "{\"photo_id\":\"pho_Hn3kW8qZ2xPm5RtL\",\"box\":4}"
+          }
+        },
+        "required": [
+          "crop",
+          "meta"
+        ]
+      },
+      "ScannerUpdateCardRequest": {
+        "type": "object",
+        "properties": {
+          "qty": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9999
+          },
+          "color_id": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "pick": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4
+          },
+          "part_no": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      },
+      "ScannerRetryIdentifyForm": {
+        "type": "object",
+        "properties": {
+          "crop": {
+            "type": "string",
+            "format": "binary",
+            "description": "One cropped part, max 300 KB. Held in memory for one call, never stored."
+          }
+        },
+        "required": [
+          "crop"
+        ]
+      },
+      "ScannerDecisionRequest": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "$ref": "#/components/schemas/ScannerDecision"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "ScannerPartOutResult": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "enum": [
+              "part_out"
+            ]
+          },
+          "fig": {
+            "$ref": "#/components/schemas/ScannerCard"
+          },
+          "pieces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScannerCard"
+            }
+          }
+        },
+        "required": [
+          "object",
+          "fig",
+          "pieces"
+        ]
+      },
+      "ScannerPartOutRequest": {
+        "type": "object",
+        "properties": {
+          "pieces": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "part_no": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$"
+                },
+                "color_id": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "qty": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 99
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "part_no",
+                "color_id"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 50
+          }
+        },
+        "additionalProperties": false
+      },
+      "ScannerHoldRequest": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "enum": [
+              "missing_piece",
+              "other"
+            ]
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "ScannerNeedHelpRequest": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "ScannerExport": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ScannerExportId"
+          },
+          "object": {
+            "type": "string",
+            "enum": [
+              "export"
+            ]
+          },
+          "batch_id": {
+            "$ref": "#/components/schemas/ScannerBatchId"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "bsx",
+              "csv",
+              "json"
+            ]
+          },
+          "file_name": {
+            "type": "string",
+            "pattern": "^scan-[a-z0-9-]+-\\d{8}-\\d{4}(-\\d+)?\\.(bsx|csv|json)$"
+          },
+          "lots": {
+            "type": "integer"
+          },
+          "left_out": {
+            "type": "integer",
+            "description": "Approved lots left out because a color or part number is missing"
+          },
+          "at_seq": {
+            "type": "integer"
+          },
+          "download_url": {
+            "type": "string"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "batch_id",
+          "format",
+          "file_name",
+          "lots",
+          "left_out",
+          "at_seq",
+          "download_url",
+          "created_at"
+        ],
+        "additionalProperties": false
+      },
+      "ScannerExportId": {
+        "type": "string",
+        "pattern": "^exp_[A-Za-z0-9]{10,32}$",
+        "example": "exp_4RtYb8Nq2LmW9xKp"
+      },
+      "ScannerCreateExportRequest": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "type": "string",
+            "enum": [
+              "bsx",
+              "csv",
+              "json"
+            ]
+          }
+        },
+        "required": [
+          "format"
+        ],
+        "additionalProperties": false
+      },
+      "ScannerExportFile": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "enum": [
+              "export_file"
+            ]
+          },
+          "batch": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/ScannerBatchId"
+              },
+              "name": {
+                "type": "string"
+              },
+              "condition": {
+                "$ref": "#/components/schemas/ScannerCondition"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "condition"
+            ]
+          },
+          "lots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "part_no": {
+                  "type": "string"
+                },
+                "item_type": {
+                  "type": "string",
+                  "enum": [
+                    "P",
+                    "M"
+                  ]
+                },
+                "color_id": {
+                  "type": "integer"
+                },
+                "color_name": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "qty": {
+                  "type": "integer"
+                },
+                "condition": {
+                  "$ref": "#/components/schemas/ScannerCondition"
+                },
+                "drawer_code": {
+                  "$ref": "#/components/schemas/ScannerDrawerCode"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "part_no",
+                "item_type",
+                "color_id",
+                "color_name",
+                "name",
+                "qty",
+                "condition",
+                "drawer_code",
+                "note"
+              ]
+            }
+          }
+        },
+        "required": [
+          "object",
+          "batch",
+          "lots"
+        ]
+      },
+      "ScannerFindList": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "enum": [
+              "list"
+            ]
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScannerFind"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "object",
+          "data",
+          "has_more",
+          "next_cursor"
+        ]
+      },
+      "ScannerFind": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "enum": [
+              "find"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "held",
+              "parts_we_need"
+            ]
+          },
+          "card_id": {
+            "$ref": "#/components/schemas/ScannerCardId"
+          },
+          "batch_id": {
+            "$ref": "#/components/schemas/ScannerBatchId"
+          },
+          "batch_name": {
+            "type": "string"
+          },
+          "part_no": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "color_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "drawer_code": {
+            "$ref": "#/components/schemas/ScannerDrawerCode"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "required": [
+          "object",
+          "type",
+          "card_id",
+          "batch_id",
+          "batch_name",
+          "part_no",
+          "name",
+          "color_id",
+          "drawer_code",
+          "reason",
+          "at"
+        ]
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/scanner/me": {
+      "get": {
+        "operationId": "scannerGetMe",
+        "tags": [
+          "scanner-me"
+        ],
+        "summary": "Who this key belongs to",
+        "description": "The person behind the key, with role and scopes. Pending users (no role) get 403.",
+        "responses": {
+          "200": {
+            "description": "The key owner",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerMe"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scanner/batches": {
+      "get": {
+        "operationId": "scannerListBatches",
+        "tags": [
+          "scanner-batches"
+        ],
+        "summary": "List batches, newest first",
+        "description": "Default: your own batches only (scope `batches:read`). `owner=all` needs `batches:read_all` (team, admin).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "me",
+                "all"
+              ],
+              "default": "me"
+            },
+            "required": false,
+            "name": "owner",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/ScannerBatchStatus"
+            },
+            "required": false,
+            "name": "status",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "example": 50
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "description": "Opaque cursor from `next_cursor`"
+            },
+            "required": false,
+            "description": "Opaque cursor from `next_cursor`",
+            "name": "cursor",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of batches",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerBatchList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "scannerCreateBatch",
+        "tags": [
+          "scanner-batches"
+        ],
+        "summary": "Start a batch (one open batch per sorter)",
+        "description": "The server names it from the first name and the Chicago date (\"Sam 11-24-26\", then \" B\", \" C\"). A second open batch gives 409 `open_batch_exists` with `batch_id`.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+              "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
+            },
+            "required": true,
+            "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScannerCreateBatchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "headers": {
+              "Idempotent-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true"
+                  ]
+                },
+                "description": "`true` when this answer replays an earlier request with the same Idempotency-Key"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerBatch"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A state rule refused the write (see `code`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`crop_too_large` (crop over 300 KB) or `body_too_large`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type` / `image_data_refused`: only the two naming routes accept image data",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scanner/batches/{batch_id}": {
+      "get": {
+        "operationId": "scannerGetBatch",
+        "tags": [
+          "scanner-batches"
+        ],
+        "summary": "One batch",
+        "description": "Small by default; `expand[]=drawers` and `expand[]=cards` add the lists.",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/ScannerBatchId"
+            },
+            "required": true,
+            "name": "batch_id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "drawers",
+                  "cards"
+                ]
+              }
+            },
+            "required": false,
+            "name": "expand[]",
+            "in": "query",
+            "style": "form",
+            "explode": true
+          },
+          {
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "values"
+                ]
+              },
+              "description": "Per-part values are opt-in (a sorter setting, off by default). Batch and minifig values always show."
+            },
+            "required": false,
+            "description": "Per-part values are opt-in (a sorter setting, off by default). Batch and minifig values always show.",
+            "name": "include[]",
+            "in": "query",
+            "style": "form",
+            "explode": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The batch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerBatch"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also for batches the key may not see, so ids do not leak)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "scannerUpdateBatch",
+        "tags": [
+          "scanner-batches"
+        ],
+        "summary": "Rename or add a note",
+        "description": "Any time before Processed. Owner only.",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/ScannerBatchId"
+            },
+            "required": true,
+            "name": "batch_id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+              "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
+            },
+            "required": true,
+            "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScannerUpdateBatchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "headers": {
+              "Idempotent-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true"
+                  ]
+                },
+                "description": "`true` when this answer replays an earlier request with the same Idempotency-Key"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerBatch"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also for batches the key may not see, so ids do not leak)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A state rule refused the write (see `code`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`crop_too_large` (crop over 300 KB) or `body_too_large`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type` / `image_data_refused`: only the two naming routes accept image data",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scanner/batches/{batch_id}/finish": {
+      "post": {
+        "operationId": "scannerFinishBatch",
+        "tags": [
+          "scanner-batches"
+        ],
+        "summary": "Finish the batch",
+        "description": "Refused while any card is undecided: 409 `cards_undecided` with `count` and `first_card_id`. Never auto-drops. 409 `no_cards` for an empty batch.",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/ScannerBatchId"
+            },
+            "required": true,
+            "name": "batch_id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+              "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
+            },
+            "required": true,
+            "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Finished; the finish-screen summary",
+            "headers": {
+              "Idempotent-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true"
+                  ]
+                },
+                "description": "`true` when this answer replays an earlier request with the same Idempotency-Key"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerFinishSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also for batches the key may not see, so ids do not leak)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A state rule refused the write (see `code`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`crop_too_large` (crop over 300 KB) or `body_too_large`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type` / `image_data_refused`: only the two naming routes accept image data",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scanner/batches/{batch_id}/reopen": {
+      "post": {
+        "operationId": "scannerReopenBatch",
+        "tags": [
+          "scanner-batches"
+        ],
+        "summary": "Reopen your own finished batch",
+        "description": "No admin send-back. 409 `not_finished`, `batch_processed` or `open_batch_exists`.",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/ScannerBatchId"
+            },
+            "required": true,
+            "name": "batch_id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+              "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
+            },
+            "required": true,
+            "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Open again",
+            "headers": {
+              "Idempotent-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true"
+                  ]
+                },
+                "description": "`true` when this answer replays an earlier request with the same Idempotency-Key"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerBatch"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also for batches the key may not see, so ids do not leak)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A state rule refused the write (see `code`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`crop_too_large` (crop over 300 KB) or `body_too_large`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type` / `image_data_refused`: only the two naming routes accept image data",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scanner/batches/{batch_id}/processed": {
+      "post": {
+        "operationId": "scannerMarkBatchProcessed",
+        "tags": [
+          "scanner-batches"
+        ],
+        "summary": "Mark as Processed",
+        "description": "Scope `batches:process` (admin). 409 `not_finished` while open.",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/ScannerBatchId"
+            },
+            "required": true,
+            "name": "batch_id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+              "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
+            },
+            "required": true,
+            "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Processed",
+            "headers": {
+              "Idempotent-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true"
+                  ]
+                },
+                "description": "`true` when this answer replays an earlier request with the same Idempotency-Key"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerBatch"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also for batches the key may not see, so ids do not leak)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A state rule refused the write (see `code`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`crop_too_large` (crop over 300 KB) or `body_too_large`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type` / `image_data_refused`: only the two naming routes accept image data",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scanner/batches/{batch_id}/events": {
+      "get": {
+        "operationId": "scannerListBatchEvents",
+        "tags": [
+          "scanner-sync"
+        ],
+        "summary": "Events in order",
+        "description": "For resume and other devices. `after_seq` filters; `cursor` pages.",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/ScannerBatchId"
+            },
+            "required": true,
+            "name": "batch_id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "default": 0
+            },
+            "required": false,
+            "name": "after_seq",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 200
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "description": "Opaque cursor from `next_cursor`"
+            },
+            "required": false,
+            "description": "Opaque cursor from `next_cursor`",
+            "name": "cursor",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerEventList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also for batches the key may not see, so ids do not leak)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "scannerAppendBatchEvents",
+        "tags": [
+          "scanner-sync"
+        ],
+        "summary": "Send the offline outbox (up to 200 events)",
+        "description": "Each event's `client_event_id` is its own idempotency key; a replay acks the first `seq`. Devices may send edits, decisions, drawer opens, photo counts, renames and notes. Cards are only made by the server and batch status only changes through its own route, so those come back in `rejected` as `route_only`.",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/ScannerBatchId"
+            },
+            "required": true,
+            "name": "batch_id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+              "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
+            },
+            "required": true,
+            "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScannerAppendEventsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Per-event acks and rejections",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerAppendEventsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also for batches the key may not see, so ids do not leak)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A state rule refused the write (see `code`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`crop_too_large` (crop over 300 KB) or `body_too_large`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type` / `image_data_refused`: only the two naming routes accept image data",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scanner/batches/{batch_id}/drawers": {
+      "get": {
+        "operationId": "scannerListDrawers",
+        "tags": [
+          "scanner-drawers"
+        ],
+        "summary": "Drawer rows with counts",
+        "description": "In the order first opened.",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/ScannerBatchId"
+            },
+            "required": true,
+            "name": "batch_id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "example": 50
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "description": "Opaque cursor from `next_cursor`"
+            },
+            "required": false,
+            "description": "Opaque cursor from `next_cursor`",
+            "name": "cursor",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Drawers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerDrawerList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also for batches the key may not see, so ids do not leak)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "scannerOpenDrawer",
+        "tags": [
+          "scanner-drawers"
+        ],
+        "summary": "Open a drawer by its label",
+        "description": "Case-insensitive, saved UPPER case. The code comes from the barcode reader, the printed-text read, or typing (all in the browser). A drawer already in the batch becomes current again (200).",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/ScannerBatchId"
+            },
+            "required": true,
+            "name": "batch_id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+              "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
+            },
+            "required": true,
+            "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScannerOpenDrawerRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Already in the batch; current again",
+            "headers": {
+              "Idempotent-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true"
+                  ]
+                },
+                "description": "`true` when this answer replays an earlier request with the same Idempotency-Key"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerDrawer"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "New drawer, now current",
+            "headers": {
+              "Idempotent-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true"
+                  ]
+                },
+                "description": "`true` when this answer replays an earlier request with the same Idempotency-Key"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerDrawer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also for batches the key may not see, so ids do not leak)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A state rule refused the write (see `code`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`crop_too_large` (crop over 300 KB) or `body_too_large`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type` / `image_data_refused`: only the two naming routes accept image data",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scanner/batches/{batch_id}/photos": {
+      "post": {
+        "operationId": "scannerRecordPhoto",
+        "tags": [
+          "scanner-photos"
+        ],
+        "summary": "Record a photo after the box check",
+        "description": "Counts only, never image data.",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/ScannerBatchId"
+            },
+            "required": true,
+            "name": "batch_id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+              "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
+            },
+            "required": true,
+            "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScannerRecordPhotoRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Recorded",
+            "headers": {
+              "Idempotent-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true"
+                  ]
+                },
+                "description": "`true` when this answer replays an earlier request with the same Idempotency-Key"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerPhoto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also for batches the key may not see, so ids do not leak)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A state rule refused the write (see `code`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`crop_too_large` (crop over 300 KB) or `body_too_large`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type` / `image_data_refused`: only the two naming routes accept image data",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scanner/batches/{batch_id}/cards": {
+      "get": {
+        "operationId": "scannerListCards",
+        "tags": [
+          "scanner-cards"
+        ],
+        "summary": "The card queue",
+        "description": "Drawer order, then the order added; part-out pieces right under their fig. `state=undecided` = every state that still needs a decision.",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/ScannerBatchId"
+            },
+            "required": true,
+            "name": "batch_id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "undecided",
+                "decided",
+                "identifying",
+                "pending",
+                "check_by_hand",
+                "no_match",
+                "error",
+                "approved",
+                "dropped",
+                "set_aside",
+                "unknown",
+                "parted_out"
+              ]
+            },
+            "required": false,
+            "name": "state",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 40,
+              "description": "Drawer code, any case"
+            },
+            "required": false,
+            "description": "Drawer code, any case",
+            "name": "drawer",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "example": 50
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "description": "Opaque cursor from `next_cursor`"
+            },
+            "required": false,
+            "description": "Opaque cursor from `next_cursor`",
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "values"
+                ]
+              },
+              "description": "Per-part values are opt-in (a sorter setting, off by default). Batch and minifig values always show."
+            },
+            "required": false,
+            "description": "Per-part values are opt-in (a sorter setting, off by default). Batch and minifig values always show.",
+            "name": "include[]",
+            "in": "query",
+            "style": "form",
+            "explode": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of cards",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerCardList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also for batches the key may not see, so ids do not leak)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "scannerCreateCard",
+        "tags": [
+          "scanner-cards"
+        ],
+        "summary": "Send one crop; the server names it and makes a card",
+        "description": "The crop (max 300 KB) is named by the free recognizer tier on the server, held in memory for that one call and never stored. Top score below 0.70, or the top two within 0.05, gives `check_by_hand` with no pre-pick. Recognizer trouble is never turned into \"no match\": the card is saved as `error` (so Retry works) and the answer is a real error (429 / 502 / 504) carrying `card_id`. Our own cap (100 per hour per person) gives 429 `rate_limited` and makes no card.",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/ScannerBatchId"
+            },
+            "required": true,
+            "name": "batch_id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+              "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
+            },
+            "required": true,
+            "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/ScannerCreateCardForm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Card made and named",
+            "headers": {
+              "Idempotent-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true"
+                  ]
+                },
+                "description": "`true` when this answer replays an earlier request with the same Idempotency-Key"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerCard"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also for batches the key may not see, so ids do not leak)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A state rule refused the write (see `code`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`crop_too_large` (crop over 300 KB) or `body_too_large`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`id_service_busy` (the namer said wait; card saved as `error`, with `card_id`) or `rate_limited` (our own per-minute or hourly cap, `limit` says which; no card made)",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "description": "Seconds to wait"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`id_service_error`: the namer failed. The card is saved with state `error` (see `card_id`); Retry works.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "`id_service_timeout`: the namer took too long. The card is saved with state `error` (see `card_id`); Retry works.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scanner/cards/{card_id}": {
+      "get": {
+        "operationId": "scannerGetCard",
+        "tags": [
+          "scanner-cards"
+        ],
+        "summary": "One card",
+        "description": "Readable by whoever can read its batch.",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/ScannerCardId"
+            },
+            "required": true,
+            "name": "card_id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "values"
+                ]
+              },
+              "description": "Per-part values are opt-in (a sorter setting, off by default). Batch and minifig values always show."
+            },
+            "required": false,
+            "description": "Per-part values are opt-in (a sorter setting, off by default). Batch and minifig values always show.",
+            "name": "include[]",
+            "in": "query",
+            "style": "form",
+            "explode": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The card",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerCard"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also for batches the key may not see, so ids do not leak)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "scannerUpdateCard",
+        "tags": [
+          "scanner-cards"
+        ],
+        "summary": "Qty, color, pick, part number, note",
+        "description": "Every change is one `card.edited` event, so color corrections are logged. Colors are limited to colors that exist for the part. An alternate part number maps to the main number. Decided cards must be reopened first (409 `card_decided`).",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/ScannerCardId"
+            },
+            "required": true,
+            "name": "card_id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+              "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
+            },
+            "required": true,
+            "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScannerUpdateCardRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "headers": {
+              "Idempotent-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true"
+                  ]
+                },
+                "description": "`true` when this answer replays an earlier request with the same Idempotency-Key"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerCard"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also for batches the key may not see, so ids do not leak)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A state rule refused the write (see `code`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`crop_too_large` (crop over 300 KB) or `body_too_large`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type` / `image_data_refused`: only the two naming routes accept image data",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scanner/cards/{card_id}/identify": {
+      "post": {
+        "operationId": "scannerRetryIdentify",
+        "tags": [
+          "scanner-cards"
+        ],
+        "summary": "Retry naming after a recognizer error",
+        "description": "Send the same crop again. 409 `retry_not_needed` unless the card is in `error`.",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/ScannerCardId"
+            },
+            "required": true,
+            "name": "card_id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+              "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
+            },
+            "required": true,
+            "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/ScannerRetryIdentifyForm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Named",
+            "headers": {
+              "Idempotent-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true"
+                  ]
+                },
+                "description": "`true` when this answer replays an earlier request with the same Idempotency-Key"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerCard"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also for batches the key may not see, so ids do not leak)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A state rule refused the write (see `code`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`crop_too_large` (crop over 300 KB) or `body_too_large`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`id_service_busy` (the namer said wait; card saved as `error`, with `card_id`) or `rate_limited` (our own per-minute or hourly cap, `limit` says which; no card made)",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "description": "Seconds to wait"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`id_service_error`: the namer failed. The card is saved with state `error` (see `card_id`); Retry works.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "`id_service_timeout`: the namer took too long. The card is saved with state `error` (see `card_id`); Retry works.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scanner/cards/{card_id}/decision": {
+      "post": {
+        "operationId": "scannerDecideCard",
+        "tags": [
+          "scanner-cards"
+        ],
+        "summary": "Approve, Drop, Set aside, or Unknown",
+        "description": "Allowed choices are in the card's `allowed_decisions`. Drop needs no confirm and no reason. A Parts We Need find only allows `set_aside`. Anything else is 409 `decision_not_allowed`.",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/ScannerCardId"
+            },
+            "required": true,
+            "name": "card_id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+              "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
+            },
+            "required": true,
+            "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScannerDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Decided",
+            "headers": {
+              "Idempotent-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true"
+                  ]
+                },
+                "description": "`true` when this answer replays an earlier request with the same Idempotency-Key"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerCard"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also for batches the key may not see, so ids do not leak)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A state rule refused the write (see `code`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`crop_too_large` (crop over 300 KB) or `body_too_large`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type` / `image_data_refused`: only the two naming routes accept image data",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scanner/cards/{card_id}/reopen": {
+      "post": {
+        "operationId": "scannerReopenCard",
+        "tags": [
+          "scanner-cards"
+        ],
+        "summary": "Undo a decision",
+        "description": "The Undo row after Drop, or reopening a done row.",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/ScannerCardId"
+            },
+            "required": true,
+            "name": "card_id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+              "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
+            },
+            "required": true,
+            "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Undecided again",
+            "headers": {
+              "Idempotent-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true"
+                  ]
+                },
+                "description": "`true` when this answer replays an earlier request with the same Idempotency-Key"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerCard"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also for batches the key may not see, so ids do not leak)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A state rule refused the write (see `code`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`crop_too_large` (crop over 300 KB) or `body_too_large`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type` / `image_data_refused`: only the two naming routes accept image data",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scanner/cards/{card_id}/part-out": {
+      "post": {
+        "operationId": "scannerPartOutFig",
+        "tags": [
+          "scanner-minifigs"
+        ],
+        "summary": "Part out a minifig",
+        "description": "The pieces become their own cards right under the fig. Leave `pieces` out to use the fig's known pieces.",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/ScannerCardId"
+            },
+            "required": true,
+            "name": "card_id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+              "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
+            },
+            "required": true,
+            "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScannerPartOutRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The fig (now parted_out) and its piece cards",
+            "headers": {
+              "Idempotent-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true"
+                  ]
+                },
+                "description": "`true` when this answer replays an earlier request with the same Idempotency-Key"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerPartOutResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also for batches the key may not see, so ids do not leak)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A state rule refused the write (see `code`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`crop_too_large` (crop over 300 KB) or `body_too_large`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type` / `image_data_refused`: only the two naming routes accept image data",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scanner/cards/{card_id}/hold": {
+      "post": {
+        "operationId": "scannerHoldFig",
+        "tags": [
+          "scanner-minifigs"
+        ],
+        "summary": "Hold a minifig that is missing a piece",
+        "description": "Decision `set_aside` with `held` true; shows on the admin Held figs list; left out of export.",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/ScannerCardId"
+            },
+            "required": true,
+            "name": "card_id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+              "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
+            },
+            "required": true,
+            "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScannerHoldRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Held",
+            "headers": {
+              "Idempotent-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true"
+                  ]
+                },
+                "description": "`true` when this answer replays an earlier request with the same Idempotency-Key"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerCard"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also for batches the key may not see, so ids do not leak)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A state rule refused the write (see `code`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`crop_too_large` (crop over 300 KB) or `body_too_large`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type` / `image_data_refused`: only the two naming routes accept image data",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scanner/cards/{card_id}/need-help": {
+      "post": {
+        "operationId": "scannerNeedHelp",
+        "tags": [
+          "scanner-cards"
+        ],
+        "summary": "Unknown part: Need help in one tap",
+        "description": "Decision `unknown` with the help text. No tracking. Posting to the team help feed is a platform hook, not built here.",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/ScannerCardId"
+            },
+            "required": true,
+            "name": "card_id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+              "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
+            },
+            "required": true,
+            "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScannerNeedHelpRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Marked unknown",
+            "headers": {
+              "Idempotent-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true"
+                  ]
+                },
+                "description": "`true` when this answer replays an earlier request with the same Idempotency-Key"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerCard"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also for batches the key may not see, so ids do not leak)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A state rule refused the write (see `code`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`crop_too_large` (crop over 300 KB) or `body_too_large`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type` / `image_data_refused`: only the two naming routes accept image data",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scanner/batches/{batch_id}/exports": {
+      "post": {
+        "operationId": "scannerCreateExport",
+        "tags": [
+          "scanner-exports"
+        ],
+        "summary": "Make an export (BSX, CSV or JSON)",
+        "description": "Scope `exports:create` (admin only for staff). Approved cards only, one lot per drawer + type + part + color + condition. Dropped, set-aside (incl. Parts We Need), unknown, held and parted-out cards are left out. BSX: BrickStore XML, `Remarks` = drawer code, `Comments` = card note, no Price or Cost. Never overwrites: each export gets its own file name. 409 `not_finished` while open.",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/ScannerBatchId"
+            },
+            "required": true,
+            "name": "batch_id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+              "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
+            },
+            "required": true,
+            "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScannerCreateExportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Export ready",
+            "headers": {
+              "Idempotent-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true"
+                  ]
+                },
+                "description": "`true` when this answer replays an earlier request with the same Idempotency-Key"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerExport"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also for batches the key may not see, so ids do not leak)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A state rule refused the write (see `code`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`crop_too_large` (crop over 300 KB) or `body_too_large`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type` / `image_data_refused`: only the two naming routes accept image data",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scanner/exports/{export_id}": {
+      "get": {
+        "operationId": "scannerGetExport",
+        "tags": [
+          "scanner-exports"
+        ],
+        "summary": "One export",
+        "description": "Scope `exports:create`.",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/ScannerExportId"
+            },
+            "required": true,
+            "name": "export_id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The export",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerExport"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also for batches the key may not see, so ids do not leak)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scanner/exports/{export_id}/file": {
+      "get": {
+        "operationId": "scannerDownloadExport",
+        "tags": [
+          "scanner-exports"
+        ],
+        "summary": "Download the file",
+        "description": "Rebuilt from the event list up to the export's sequence number, so it is always the same file. Scope `exports:create`.",
+        "parameters": [
+          {
+            "schema": {
+              "$ref": "#/components/schemas/ScannerExportId"
+            },
+            "required": true,
+            "name": "export_id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file",
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "attachment; filename=\"scan-<batch>-YYYYMMDD-HHMM.<ext>\" (Chicago time)"
+              }
+            },
+            "content": {
+              "application/xml": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerExportFile"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also for batches the key may not see, so ids do not leak)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scanner/finds": {
+      "get": {
+        "operationId": "scannerListFinds",
+        "tags": [
+          "scanner-finds"
+        ],
+        "summary": "Admin lists: held figs, Parts We Need found",
+        "description": "Scope `batches:read_all`. Newest first.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "held",
+                "parts_we_need"
+              ]
+            },
+            "required": true,
+            "name": "type",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "example": 50
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "description": "Opaque cursor from `next_cursor`"
+            },
+            "required": false,
+            "description": "Opaque cursor from `next_cursor`",
+            "name": "cursor",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Finds",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerFindList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (with `errors[]`) or `idempotency_key_missing`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/scanner/openapi.json": {
+      "get": {
+        "operationId": "scannerGetSpec",
+        "tags": [
+          "scanner-meta"
+        ],
+        "summary": "This contract as JSON",
+        "description": "The scanner part of the platform spec (DRAFT 1).",
+        "responses": {
+          "200": {
+            "description": "OpenAPI 3.1 document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": {}
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`api_key_missing` or `api_key_invalid`",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden`, with `need` naming the missing scope (or `owner`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {}
+}

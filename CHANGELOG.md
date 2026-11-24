@@ -20,3 +20,7 @@ each day.
   Ownership sections added. New files: DEFINITION-OF-DONE.md, OWNERS.md, CHANGELOG.md,
   ROADMAP.md, .gitignore, redocly.yaml, .github/workflows/ci.yml. Folder put under git (local
   commit only, not pushed; Accounts and Security reviews before the first push). Owner: Web Boss.
+- 12:10 PM CT (proposed, PR from Part Scanner v2, not merged): scanner v0 slice. `apps/scanner/` (source, tests,
+  generated contract, prebuilt Pages bundle), `/api/v1/scanner/*` mounted fail-closed (every call 401 until A&S
+  auth), 28 scanner operations merged into spec/openapi.json, contract test checks each one signed out. No tables,
+  no secrets, no deploy. Needs: A&S review, Web Boss merge.

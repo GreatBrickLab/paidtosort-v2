@@ -1,0 +1,19 @@
+{
+  "_note": "Made-up test data for the local WIP only. Not Parts and Orders data. Values are fake.",
+  "colors": { "0": "(Not Applicable)", "1": "White", "3": "Yellow", "5": "Red", "7": "Blue", "11": "Black", "85": "Dark Bluish Gray", "86": "Light Bluish Gray" },
+  "parts": {
+    "3001": { "name": "Brick 2 x 4", "colors": [5, 11, 1, 7] },
+    "3005": { "name": "Brick 1 x 1", "colors": [1, 5, 3] },
+    "3023": { "name": "Plate 1 x 2", "colors": [11, 86, 85, 1] },
+    "3024": { "name": "Plate 1 x 1", "colors": [5, 11] },
+    "15573": { "name": "Plate, Modified 1 x 2 with 1 Stud (Jumper)", "colors": [86, 11], "mold_variants": ["3794a", "3794b"] },
+    "973": { "name": "Torso", "colors": [1, 7] },
+    "970c00": { "name": "Hips and Legs", "colors": [11, 7] },
+    "3626": { "name": "Minifigure, Head", "colors": [3] },
+    "cty0001": { "name": "Town Figure (test)", "colors": [], "pieces": [ { "part_no": "973", "color_id": 1, "qty": 1 }, { "part_no": "970c00", "color_id": 11, "qty": 1 }, { "part_no": "3626", "color_id": 3, "qty": 1 } ] }
+  },
+  "alternates": { "3794": "15573" },
+  "values": { "3001|5": 0.25, "3001|11": 0.2, "3023|11": 0.04, "3005|3": 0.06, "3024|5": 0.03, "15573|86": 1.2, "973|1": 1.5, "970c00|11": 0.8, "3626|3": 6.0, "cty0001|0": 4.5 },
+  "in_stock": ["3001|5", "3023|11", "3024|5"],
+  "wanted": ["3005|3"]
+}

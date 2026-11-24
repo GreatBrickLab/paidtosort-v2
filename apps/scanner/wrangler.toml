@@ -1,0 +1,24 @@
+# LOCAL DEV ONLY. Never `wrangler deploy`, never `--remote`. Deploys go through Web Boss.
+# The D1 binding below is a local placeholder: there is no real database behind it.
+name = "pts-scanner-api-wip"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+compatibility_flags = ["nodejs_compat"]
+send_metrics = false
+workers_dev = false
+
+[vars]
+RECOGNIZER = "stub"            # "brickognize" would call the free public tier; tests and dev use the stub
+IDENTIFY_HOURLY_LIMIT = "100"
+IDENTIFY_PER_MINUTE_LIMIT = "20"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "pts-scanner-local"
+database_id = "00000000-0000-0000-0000-000000000000"   # placeholder, local only
+migrations_dir = "proposed-schema"                     # PROPOSED schema for A&S review, local test only
+
+[dev]
+port = 4794
+inspector_port = 4797
+ip = "127.0.0.1"

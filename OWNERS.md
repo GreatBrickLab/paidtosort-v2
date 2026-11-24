@@ -27,7 +27,7 @@ needs an Accounts and Security review; any table change also needs Chris's typed
 | `/auth/...` (sign-in, sessions, tokens, email codes) | Accounts and Security | planned (milestone 2) |
 | `/keys/...`, `/roles/...` | Accounts and Security | planned (milestone 2) |
 | `/parts/...`, `/colors/...`, `/drawers/...`, `/staff/...` (shared data) | Web Boss | planned (milestone 3) |
-| `/scanner/...` | Part Scanner v2 | planned (milestone 4) |
+| `/scanner/...` | Part Scanner v2 | DRAFT 1 mounted, fail-closed (every call 401 until A&S auth) |
 | Other sections (`/<app>/...`) | Assigned builder | planned (milestone 6) |
 
 ## Tables (D1 `pts-v2-db`, empty today)
@@ -37,7 +37,7 @@ needs an Accounts and Security review; any table change also needs Chris's typed
 | users, sessions, refresh tokens, API keys, roles, scopes | Accounts and Security | A&S design + Chris's typed OK |
 | idempotency keys, audit log | Accounts and Security | A&S design + Chris's typed OK |
 | parts, colors, drawers, staff (shared data) | Web Boss | A&S request + Chris's typed OK |
-| scanner tables (`scanner_...`) | Part Scanner v2 | A&S request + Chris's typed OK |
+| scanner tables (`scan_...`, proposed: `scan_batches`, `scan_events`) | Part Scanner v2 | A&S request + Chris's typed OK |
 | other app tables (`<app>_...`) | Assigned builder | A&S request + Chris's typed OK |
 
 ## Screens
