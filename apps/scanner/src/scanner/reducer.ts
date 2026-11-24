@@ -213,7 +213,7 @@ export function counts(s: BatchState, cat: Catalog) {
 
 export const firstUndecided = (s: BatchState) => orderedCards(s).find(isUndecided) ?? null;
 
-/** Admin lists (held figs, Parts We Need found), cached in the batch summary so the list needs no event scan. */
+/** Admin lists (held figs, Parts We Need found). The batch summary caches only their counts (ADR 0009). */
 export function finds(s: BatchState, cat: Catalog) {
   const out: Record<string, unknown>[] = [];
   for (const c of s.cards) {

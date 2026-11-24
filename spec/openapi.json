@@ -237,7 +237,7 @@
           {
             "schema": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$",
               "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
               "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
             },
@@ -317,7 +317,7 @@
             }
           },
           "409": {
-            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full",
+            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full, or `write_conflict` (other changes to this batch landed first; nothing saved; `Retry-After`; retry with the same Idempotency-Key)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -347,7 +347,7 @@
             }
           },
           "422": {
-            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "description": "`idempotency_mismatch` (this key was used with a different request) or `constraint_violation` (a value broke a storage rule; nothing saved)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -501,7 +501,7 @@
           {
             "schema": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$",
               "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
               "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
             },
@@ -591,7 +591,7 @@
             }
           },
           "409": {
-            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full",
+            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full, or `write_conflict` (other changes to this batch landed first; nothing saved; `Retry-After`; retry with the same Idempotency-Key)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -621,7 +621,7 @@
             }
           },
           "422": {
-            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "description": "`idempotency_mismatch` (this key was used with a different request) or `constraint_violation` (a value broke a storage rule; nothing saved)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -658,7 +658,7 @@
           {
             "schema": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$",
               "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
               "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
             },
@@ -738,7 +738,7 @@
             }
           },
           "409": {
-            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full",
+            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full, or `write_conflict` (other changes to this batch landed first; nothing saved; `Retry-After`; retry with the same Idempotency-Key)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -768,7 +768,7 @@
             }
           },
           "422": {
-            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "description": "`idempotency_mismatch` (this key was used with a different request) or `constraint_violation` (a value broke a storage rule; nothing saved)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -805,7 +805,7 @@
           {
             "schema": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$",
               "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
               "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
             },
@@ -885,7 +885,7 @@
             }
           },
           "409": {
-            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full",
+            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full, or `write_conflict` (other changes to this batch landed first; nothing saved; `Retry-After`; retry with the same Idempotency-Key)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -915,7 +915,7 @@
             }
           },
           "422": {
-            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "description": "`idempotency_mismatch` (this key was used with a different request) or `constraint_violation` (a value broke a storage rule; nothing saved)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -952,7 +952,7 @@
           {
             "schema": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$",
               "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
               "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
             },
@@ -1032,7 +1032,7 @@
             }
           },
           "409": {
-            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full",
+            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full, or `write_conflict` (other changes to this batch landed first; nothing saved; `Retry-After`; retry with the same Idempotency-Key)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1062,7 +1062,7 @@
             }
           },
           "422": {
-            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "description": "`idempotency_mismatch` (this key was used with a different request) or `constraint_violation` (a value broke a storage rule; nothing saved)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1216,7 +1216,7 @@
           {
             "schema": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$",
               "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
               "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
             },
@@ -1295,7 +1295,7 @@
             }
           },
           "409": {
-            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full",
+            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full, or `write_conflict` (other changes to this batch landed first; nothing saved; `Retry-After`; retry with the same Idempotency-Key)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1325,7 +1325,7 @@
             }
           },
           "422": {
-            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "description": "`idempotency_mismatch` (this key was used with a different request) or `constraint_violation` (a value broke a storage rule; nothing saved)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1467,7 +1467,7 @@
           {
             "schema": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$",
               "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
               "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
             },
@@ -1578,7 +1578,7 @@
             }
           },
           "409": {
-            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full",
+            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full, or `write_conflict` (other changes to this batch landed first; nothing saved; `Retry-After`; retry with the same Idempotency-Key)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1608,7 +1608,7 @@
             }
           },
           "422": {
-            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "description": "`idempotency_mismatch` (this key was used with a different request) or `constraint_violation` (a value broke a storage rule; nothing saved)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1645,7 +1645,7 @@
           {
             "schema": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$",
               "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
               "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
             },
@@ -1735,7 +1735,7 @@
             }
           },
           "409": {
-            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full",
+            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full, or `write_conflict` (other changes to this batch landed first; nothing saved; `Retry-After`; retry with the same Idempotency-Key)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1765,7 +1765,7 @@
             }
           },
           "422": {
-            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "description": "`idempotency_mismatch` (this key was used with a different request) or `constraint_violation` (a value broke a storage rule; nothing saved)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1958,7 +1958,7 @@
           {
             "schema": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$",
               "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
               "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
             },
@@ -2048,7 +2048,7 @@
             }
           },
           "409": {
-            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full",
+            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full, or `write_conflict` (other changes to this batch landed first; nothing saved; `Retry-After`; retry with the same Idempotency-Key)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2068,7 +2068,7 @@
             }
           },
           "422": {
-            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "description": "`idempotency_mismatch` (this key was used with a different request) or `constraint_violation` (a value broke a storage rule; nothing saved)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2254,7 +2254,7 @@
           {
             "schema": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$",
               "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
               "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
             },
@@ -2344,7 +2344,7 @@
             }
           },
           "409": {
-            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full",
+            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full, or `write_conflict` (other changes to this batch landed first; nothing saved; `Retry-After`; retry with the same Idempotency-Key)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2374,7 +2374,7 @@
             }
           },
           "422": {
-            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "description": "`idempotency_mismatch` (this key was used with a different request) or `constraint_violation` (a value broke a storage rule; nothing saved)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2411,7 +2411,7 @@
           {
             "schema": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$",
               "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
               "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
             },
@@ -2501,7 +2501,7 @@
             }
           },
           "409": {
-            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full",
+            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full, or `write_conflict` (other changes to this batch landed first; nothing saved; `Retry-After`; retry with the same Idempotency-Key)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2521,7 +2521,7 @@
             }
           },
           "422": {
-            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "description": "`idempotency_mismatch` (this key was used with a different request) or `constraint_violation` (a value broke a storage rule; nothing saved)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2607,7 +2607,7 @@
           {
             "schema": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$",
               "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
               "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
             },
@@ -2697,7 +2697,7 @@
             }
           },
           "409": {
-            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full",
+            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full, or `write_conflict` (other changes to this batch landed first; nothing saved; `Retry-After`; retry with the same Idempotency-Key)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2727,7 +2727,7 @@
             }
           },
           "422": {
-            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "description": "`idempotency_mismatch` (this key was used with a different request) or `constraint_violation` (a value broke a storage rule; nothing saved)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2764,7 +2764,7 @@
           {
             "schema": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$",
               "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
               "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
             },
@@ -2844,7 +2844,7 @@
             }
           },
           "409": {
-            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full",
+            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full, or `write_conflict` (other changes to this batch landed first; nothing saved; `Retry-After`; retry with the same Idempotency-Key)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2874,7 +2874,7 @@
             }
           },
           "422": {
-            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "description": "`idempotency_mismatch` (this key was used with a different request) or `constraint_violation` (a value broke a storage rule; nothing saved)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2911,7 +2911,7 @@
           {
             "schema": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$",
               "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
               "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
             },
@@ -3001,7 +3001,7 @@
             }
           },
           "409": {
-            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full",
+            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full, or `write_conflict` (other changes to this batch landed first; nothing saved; `Retry-After`; retry with the same Idempotency-Key)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -3031,7 +3031,7 @@
             }
           },
           "422": {
-            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "description": "`idempotency_mismatch` (this key was used with a different request) or `constraint_violation` (a value broke a storage rule; nothing saved)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -3068,7 +3068,7 @@
           {
             "schema": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$",
               "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
               "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
             },
@@ -3158,7 +3158,7 @@
             }
           },
           "409": {
-            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full",
+            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full, or `write_conflict` (other changes to this batch landed first; nothing saved; `Retry-After`; retry with the same Idempotency-Key)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -3188,7 +3188,7 @@
             }
           },
           "422": {
-            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "description": "`idempotency_mismatch` (this key was used with a different request) or `constraint_violation` (a value broke a storage rule; nothing saved)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -3225,7 +3225,7 @@
           {
             "schema": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$",
               "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
               "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
             },
@@ -3315,7 +3315,7 @@
             }
           },
           "409": {
-            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full",
+            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full, or `write_conflict` (other changes to this batch landed first; nothing saved; `Retry-After`; retry with the same Idempotency-Key)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -3345,7 +3345,7 @@
             }
           },
           "422": {
-            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "description": "`idempotency_mismatch` (this key was used with a different request) or `constraint_violation` (a value broke a storage rule; nothing saved)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -3382,7 +3382,7 @@
           {
             "schema": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_.:-]{8,200}$",
+              "pattern": "^[A-Za-z0-9_.:-]{8,128}$",
               "description": "Unique per logical write (UUID v4 is fine). Reuse it to retry safely.",
               "example": "4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11"
             },
@@ -3472,7 +3472,7 @@
             }
           },
           "409": {
-            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full",
+            "description": "A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full, or `write_conflict` (other changes to this batch landed first; nothing saved; `Retry-After`; retry with the same Idempotency-Key)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -3502,7 +3502,7 @@
             }
           },
           "422": {
-            "description": "`idempotency_mismatch`: this key was used with a different request",
+            "description": "`idempotency_mismatch` (this key was used with a different request) or `constraint_violation` (a value broke a storage rule; nothing saved)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -5066,7 +5066,7 @@
               "properties": {
                 "client_event_id": {
                   "type": "string",
-                  "pattern": "^[A-Za-z0-9_.:-]{8,200}$"
+                  "pattern": "^[A-Za-z0-9_.:-]{8,128}$"
                 },
                 "type": {
                   "type": "string",

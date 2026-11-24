@@ -9,6 +9,7 @@ A route is done when **all** of these are true and shown by a test in CI:
 5. Each write appends events with `user_id`, `key_id`, `request_id`, `at` (UTC) for the audit trail.
 6. Money is integer `_cents` + `currency`; times end in `Z`; IDs are prefixed; JSON is snake_case.
 7. Spectral lint passes with zero warnings; `tsc` clean.
+8. Concurrency and storage rules (A&S follow-ups): 25 concurrent writes to one batch all land with zero lost cards and one recognizer call each; a cross-isolate loser gets 409 `write_conflict` + `Retry-After` and a retry with the same key reuses the naming; a CHECK failure is 422 `constraint_violation`, never a retried 409/500; keys over 128 chars are 400 before any write.
 
 ## Acceptance criteria per route
 | Operation | Scope / who | Must |

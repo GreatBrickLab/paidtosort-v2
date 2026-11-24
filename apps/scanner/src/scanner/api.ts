@@ -2,7 +2,7 @@
 import type { Context } from 'hono';
 import { type Principal, hasScope, principalOf, requireScope } from '../platform/auth';
 import { nowIso } from '../platform/conventions';
-import { newId } from '../platform/ids';
+import { newId, sha256Hex } from '../platform/ids';
 import { REPLAY_HEADER, requestHash } from '../platform/idempotency';
 import { decodeCursor, encodeCursor } from '../platform/paging';
 import { problem, registerProblemTitles } from '../platform/problem';
@@ -15,7 +15,7 @@ import { toBSX, toCSV, toJSON } from './bsx';
 import { exportFileName, nextBatchName, normDrawer } from './names';
 import {
   type BatchState, type Card, type Identify, type StoredEvent, CLIENT_EVENT_TYPES, allowedDecisions, cardState, chosen, counts, exportable,
-  firstUndecided, isUndecided, itemType, lots, orderedCards, reduce, rejectReason, validColor,
+  finds, firstUndecided, isUndecided, itemType, lots, orderedCards, reduce, rejectReason, validColor,
 } from './reducer';
 import { Conflict, type NewEvent, Store } from './store';
 import { type BatchRow, batchView, cardView, drawerViews, finishSummary, summaryOf } from './views';
@@ -26,11 +26,11 @@ registerProblemTitles({
   batch_finished: 'This batch is finished', batch_processed: 'This batch is processed', not_finished: 'This batch is not finished',
   decision_not_allowed: 'That choice is not allowed for this card', not_a_minifig: 'This card is not a minifig', retry_not_needed: 'This card does not need a retry',
   card_decided: 'Reopen this card before changing it', no_drawer_open: 'Scan a drawer label first', crop_too_large: 'The crop is too large (max 300 KB)',
-  rate_limited: 'Naming limit reached', recognizer_not_configured: 'Part naming is not switched on here', batch_event_limit: 'This batch is full; finish it and start a new one', too_many_crops: 'Send one crop per request', id_service_busy: 'The part namer is busy', id_service_error: 'The part namer had an error', id_service_timeout: 'The part namer timed out',
+  rate_limited: 'Naming limit reached', recognizer_not_configured: 'Part naming is not switched on here', batch_event_limit: 'This batch is full; finish it and start a new one', too_many_crops: 'Send one crop per request', write_conflict: 'Too many changes to this batch at once', constraint_violation: 'A value broke a storage rule', id_service_busy: 'The part namer is busy', id_service_error: 'The part namer had an error', id_service_timeout: 'The part namer timed out',
 });
 
-export interface ScannerDeps { db: D1Database; catalog: Catalog; recognizer: Recognizer; now?: () => Date; identifyHourlyLimit?: number; identifyPerMinuteLimit?: number; identifyGlobalPerMinute?: number; identifyGlobalPerHour?: number; eventsPerBatch?: number; spec: unknown; rateLimit?: RateLimitHook }
-import { ID_LIMITS, MAX_EVENTS_PER_BATCH } from './limits';
+export interface ScannerDeps { db: D1Database; catalog: Catalog; recognizer: Recognizer; now?: () => Date; identifyHourlyLimit?: number; identifyPerMinuteLimit?: number; identifyGlobalPerMinute?: number; identifyGlobalPerHour?: number; eventsPerBatch?: number; writeAttempts?: number; identifyPurgeChance?: number; spec: unknown; rateLimit?: RateLimitHook }
+import { ID_LIMITS, MAX_EVENTS_PER_BATCH, WRITE_LIMITS } from './limits';
 const MAX_CROP = ID_LIMITS.maxCropBytes;
 
 type Draft = { type: string; payload: Record<string, unknown> };
@@ -39,7 +39,8 @@ type Ctx = Context;
 export function createScannerRouter(getDeps: (c: Ctx) => ScannerDeps) {
   const r = newSectionRouter();
   const env = (c: Ctx) => { const d = getDeps(c); return { ...d, store: new Store(d.db), now: d.now ?? (() => new Date()), limit: d.identifyHourlyLimit ?? ID_LIMITS.perHour, perMinute: d.identifyPerMinuteLimit ?? ID_LIMITS.perMinute,
-    globalPerMinute: d.identifyGlobalPerMinute ?? ID_LIMITS.globalPerMinute, globalPerHour: d.identifyGlobalPerHour ?? ID_LIMITS.globalPerHour, maxEvents: d.eventsPerBatch ?? MAX_EVENTS_PER_BATCH }; };
+    globalPerMinute: d.identifyGlobalPerMinute ?? ID_LIMITS.globalPerMinute, globalPerHour: d.identifyGlobalPerHour ?? ID_LIMITS.globalPerHour, maxEvents: d.eventsPerBatch ?? MAX_EVENTS_PER_BATCH,
+    attempts: Math.max(1, d.writeAttempts ?? WRITE_LIMITS.attempts), purgeChance: d.identifyPurgeChance ?? WRITE_LIMITS.identifyPurgeChance }; };
   const add = (route: any, h: (c: Ctx) => Promise<Response>) => r.openapi(route, h as never);
   const valid = (c: Ctx, t: 'json' | 'query' | 'param' | 'form' | 'header') => (c.req as any).valid(t);
   const json = (c: Ctx, body: unknown, status = 200, replay = false) => {
@@ -47,6 +48,23 @@ export function createScannerRouter(getDeps: (c: Ctx) => ScannerDeps) {
     if (replay) res.headers.set(REPLAY_HEADER, 'true');
     return res;
   };
+
+  // ---------- per-batch ordering (ADR 0010) ----------
+  // Writes to one batch from this isolate run one at a time, so concurrent requests queue instead of racing the seq guard.
+  // Across isolates the seq guard + bounded retries with jittered backoff still decide; exhaustion is 409 write_conflict.
+  const queues = new Map<string, Promise<void>>();
+  async function serial<T>(batchId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = queues.get(batchId) ?? Promise.resolve();
+    let release!: () => void;
+    const mine = prev.then(() => new Promise<void>((r) => { release = r; }));
+    queues.set(batchId, mine);
+    await prev;
+    try { return await fn(); } finally { release(); if (queues.get(batchId) === mine) queues.delete(batchId); }
+  }
+  const backoff = (attempt: number) => new Promise((r) => setTimeout(r, Math.min(200, 5 * 2 ** attempt) * (0.5 + Math.random())));
+  const writeConflict = () => problem(409, 'write_conflict', { retry_after_s: 1, detail: 'Other changes to this batch landed first. Nothing was saved; retry with the same Idempotency-Key.' }, { 'Retry-After': '1' });
+  /** Derived ids for the 2nd+ events of one request. '#' is outside the client id charset, so they never collide with a client id, and stay ≤ 48 chars. */
+  const derivedId = async (key: string, n: number) => `#${n}#${(await sha256Hex(new TextEncoder().encode(key) as Uint8Array<ArrayBuffer>)).slice(0, 40)}`;
 
   // ---------- core write path: idempotent append with optimistic concurrency ----------
   async function write(c: Ctx, batchId: string, o: {
@@ -58,7 +76,9 @@ export function createScannerRouter(getDeps: (c: Ctx) => ScannerDeps) {
     const e = env(c); const p = principalOf(c);
     const key = valid(c, 'header')['idempotency-key'] as string;
     const hash = await requestHash(c.req.method, new URL(c.req.url).pathname, o.body ?? null);
-    for (let attempt = 0; attempt < 5; attempt++) {
+    return serial(batchId, async () => {
+    for (let attempt = 0; attempt < e.attempts; attempt++) {
+      if (attempt) await backoff(attempt);
       const row = await e.store.getBatch(batchId);
       if (!row) throw problem(404, 'not_found');
       const events = await e.store.events(batchId);
@@ -72,8 +92,9 @@ export function createScannerRouter(getDeps: (c: Ctx) => ScannerDeps) {
       if (row.last_seq + drafts.length > e.maxEvents) throw problem(409, 'batch_event_limit', { limit: e.maxEvents, detail: `A batch holds at most ${e.maxEvents} events.` });
       const status = typeof o.status === 'function' ? o.status(s, drafts) : o.status;
       const at = nowIso(e.now());
+      const ids = await Promise.all(drafts.map((_, i) => (i === 0 ? key : derivedId(key, i + 1))));
       const fresh: NewEvent[] = drafts.map((d, i) => ({
-        client_event_id: i === 0 ? key : `${key}#${i + 1}`, type: d.type,
+        client_event_id: ids[i], type: d.type,
         payload: i === 0 ? { ...d.payload, request_hash: hash, response_status: status } : d.payload,
         user_id: p.user_id, key_id: p.key_id, request_id: c.get('request_id' as never) as string, device_id: c.req.header('x-device-id')?.slice(0, 64) ?? null, at,
       }));
@@ -85,7 +106,8 @@ export function createScannerRouter(getDeps: (c: Ctx) => ScannerDeps) {
       const row2: BatchRow = { ...row, ...patch, processed_by: patch.processed_by ?? row.processed_by, last_seq: row.last_seq + fresh.length } as BatchRow;
       return o.respond(s2, row2, fresh[0].payload, false);
     }
-    throw problem(409, 'internal', { detail: 'Too many writes at once; try again.' });
+    throw writeConflict();
+    });
   }
 
   const openOnly = (s: BatchState) => { if (s.batch.status !== 'open') throw problem(409, s.batch.status === 'finished' ? 'batch_finished' : 'batch_processed'); };
@@ -140,6 +162,7 @@ export function createScannerRouter(getDeps: (c: Ctx) => ScannerDeps) {
     const row: BatchRow = { id, owner_user_id: p.user_id, name, condition: body.condition, status: 'open', last_seq: 1, summary_json: JSON.stringify(summaryOf(s, e.catalog)),
       created_at: at, updated_at: at, finished_at: null, processed_at: null, processed_by: null };
     try { await e.store.createBatch(row, ev); } catch (err) {
+      if (!(err instanceof Conflict)) throw err; // 422 constraint_violation and real faults pass through
       const again = await e.store.findOpenBatch(p.user_id); // lost a race with another device
       if (again) throw problem(409, 'open_batch_exists', { batch_id: again.id });
       throw err;
@@ -231,7 +254,9 @@ export function createScannerRouter(getDeps: (c: Ctx) => ScannerDeps) {
   add(R.appendBatchEvents, async (c) => {
     const e = env(c); const { batch_id } = valid(c, 'param'); const body = valid(c, 'json'); const p = principalOf(c);
     await ownedBatch(c, e.store, batch_id);
-    for (let attempt = 0; attempt < 5; attempt++) {
+    return serial(batch_id, async () => {
+    for (let attempt = 0; attempt < e.attempts; attempt++) {
+      if (attempt) await backoff(attempt);
       const row = (await e.store.getBatch(batch_id))!;
       const events = await e.store.events(batch_id);
       const known = new Map(events.map((x) => [x.client_event_id, x.seq]));
@@ -259,7 +284,8 @@ export function createScannerRouter(getDeps: (c: Ctx) => ScannerDeps) {
       }
       return json(c, { acks, rejected, last_seq: row.last_seq + fresh.length });
     }
-    throw problem(409, 'internal', { detail: 'Too many writes at once; try again.' });
+    throw writeConflict();
+    });
   });
 
   // ---------- drawers ----------
@@ -336,14 +362,32 @@ export function createScannerRouter(getDeps: (c: Ctx) => ScannerDeps) {
     if (crop.size === 0) throw problem(400, 'invalid_request', { errors: [{ field: 'form.crop', message: 'Empty file' }] });
     return crop;
   }
-  async function rateCap(c: Ctx, p: Principal) {
+  /**
+   * One naming per (caller, Idempotency-Key, crop). A retry of the same request (for example after 409 write_conflict) reuses
+   * the stored result and never calls the recognizer or spends a slot again. New calls reserve a slot first (G2).
+   */
+  async function nameOnce(c: Ctx, p: Principal, key: string, cropSha256: string, call: () => Promise<RecognizerResult>): Promise<RecognizerResult> {
+    const e = env(c);
+    const cached = await e.store.cachedIdentify(p.user_id, key, cropSha256);
+    if (cached) return JSON.parse(cached) as RecognizerResult;
+    const slot = await rateCap(c, p, key, cropSha256);
+    const res = await call();
+    await e.store.saveIdentifyResult(slot, JSON.stringify(res));
+    return res;
+  }
+  async function purgeRateRows(c: Ctx) {
+    const e = env(c);
+    if (Math.random() >= e.purgeChance) return;
+    await e.store.purgeIdentifyCalls(nowIso(new Date(e.now().getTime() - ID_LIMITS.rateRowRetentionDays * 86_400_000)));
+  }
+  async function rateCap(c: Ctx, p: Principal, key: string, cropSha256: string): Promise<number> {
     const e = env(c); const now = e.now();
     const hook = await (e.rateLimit ?? allowAll).check(`${p.user_id}:${p.key_id ?? '-'}`, 'scanner.identify');
     if (!hook.ok) throw problem(429, 'rate_limited', { retry_after_s: hook.retry_after_s, detail: 'Too many naming requests from this caller.' }, { 'Retry-After': String(hook.retry_after_s) });
     const minuteAgo = nowIso(new Date(now.getTime() - 60_000)); const hourAgo = nowIso(new Date(now.getTime() - 3600_000));
     const ok = await e.store.reserveIdentify({ user: p.user_id, at: nowIso(now), requestId: c.get('request_id' as never) as string, minuteAgo, hourAgo,
-      perMinute: e.perMinute, perHour: e.limit, globalPerMinute: e.globalPerMinute, globalPerHour: e.globalPerHour });
-    if (ok) return; // slot reserved before the call; it stays counted even if the call or the write fails
+      perMinute: e.perMinute, perHour: e.limit, globalPerMinute: e.globalPerMinute, globalPerHour: e.globalPerHour, idempotencyKey: key, cropSha256 });
+    if (ok !== null) { await purgeRateRows(c); return ok; } // slot reserved before the call; it stays counted even if the call or the write fails
     const windows = [
       { limit: 'minute', user: p.user_id, since: minuteAgo, ms: 60_000, cap: e.perMinute, detail: `${e.perMinute} namings per minute per person.` },
       { limit: 'hourly', user: p.user_id, since: hourAgo, ms: 3600_000, cap: e.limit, detail: `${e.limit} namings per hour per person.` },
@@ -392,7 +436,7 @@ export function createScannerRouter(getDeps: (c: Ctx) => ScannerDeps) {
     };
     const already = (await e.store.events(batch_id)).some((x) => x.client_event_id === key);
     let ident: Identify | null = null;
-    if (!already) { drawerOf(pre); roomFor(c, pre, 1); recognizerReady(c); await rateCap(c, p); ident = identifyFrom(await e.recognizer.identify(crop, { kind: m.data.kind ?? 'part' }), e.catalog); }
+    if (!already) { drawerOf(pre); roomFor(c, pre, 1); recognizerReady(c); ident = identifyFrom(await nameOnce(c, p, key, body.crop_sha256, () => e.recognizer.identify(crop, { kind: m.data.kind ?? 'part' })), e.catalog); }
     return write(c, batch_id, { body, status: () => (ident?.status === 'error' ? identifyProblem({ identify: ident } as Card).status : 201),
       run: (s) => [{ type: 'card.added', payload: { card_id: newId('crd'), photo_id: m.data.photo_id ?? null, box: m.data.box ?? null, drawer_code: drawerOf(s), kind: m.data.kind ?? 'part', identify: ident, identify_call: 1 } }],
       respond: (s, _r, f, replay) => {
@@ -456,8 +500,7 @@ export function createScannerRouter(getDeps: (c: Ctx) => ScannerDeps) {
       if (!['error', 'identifying'].includes(cardState(card))) throw problem(409, 'retry_not_needed');
       roomFor(c, s, 1);
       recognizerReady(c);
-      await rateCap(c, p);
-      ident = identifyFrom(await e.recognizer.identify(crop, { kind: card.kind }), e.catalog);
+      ident = identifyFrom(await nameOnce(c, p, key, body.crop_sha256, () => e.recognizer.identify(crop, { kind: card.kind })), e.catalog);
     }
     return write(c, row.id, { body, status: () => (ident?.status === 'error' ? identifyProblem({ identify: ident } as Card).status : 200),
       run: (s) => { openOnly(s); findCard(s, card_id); return [{ type: 'card.updated', payload: { card_id, identify: ident, identify_call: 1 } }]; },
@@ -599,8 +642,10 @@ export function createScannerRouter(getDeps: (c: Ctx) => ScannerDeps) {
   add(R.listFinds, async (c) => {
     const e = env(c); const q = valid(c, 'query');
     const p = requireScope(c, 'batches:read_all');
-    const rows = (await e.store.allBatchesWithFinds()).filter((row) => canRead(p, row));
-    let all = rows.flatMap((row) => (JSON.parse(row.summary_json).finds ?? []).filter((f: any) => f.type === q.type).map((f: any) => ({ object: 'find', ...f, batch_id: row.id, batch_name: row.name })))
+    const rows = (await e.store.batchesWithFinds(q.type)).filter((row) => canRead(p, row));
+    const per = await Promise.all(rows.map(async (row) => finds(reduce(row.id, await e.store.events(row.id)), e.catalog)
+      .filter((f: any) => f.type === q.type).map((f: any) => ({ object: 'find', ...f, batch_id: row.id, batch_name: row.name }))));
+    let all = per.flat()
       .sort((a: any, b: any) => (a.at < b.at ? 1 : a.at > b.at ? -1 : a.card_id < b.card_id ? 1 : -1));
     const cur = decodeCursor(q.cursor);
     if (cur) { const i = all.findIndex((f: any) => f.card_id === cur.i); all = i >= 0 ? all.slice(i + 1) : []; }

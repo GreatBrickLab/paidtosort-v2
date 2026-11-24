@@ -158,7 +158,7 @@ export const NeedHelpBody = z.object({ text: z.string().trim().min(1).max(500) }
 export const CreateExportBody = z.object({ format: z.enum(['bsx', 'csv', 'json']) }).strict().openapi('ScannerCreateExportRequest');
 export const AppendEventsBody = z.object({
   events: z.array(z.object({
-    client_event_id: z.string().regex(/^[A-Za-z0-9_.:-]{8,200}$/),
+    client_event_id: z.string().regex(/^[A-Za-z0-9_.:-]{8,128}$/),
     type: z.string().max(40).openapi({ description: 'Allowed from a device: batch.renamed, batch.noted, drawer.opened, photo.taken, card.edited, card.decided, card.reopened. Anything else comes back in `rejected`.' }),
     device_id: z.string().max(64).optional(), payload: z.record(z.string(), z.unknown()),
   }).strict()).min(1).max(200),

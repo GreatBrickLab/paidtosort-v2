@@ -5,7 +5,7 @@
 import { z } from '@hono/zod-openapi';
 import { canonical, sha256Hex } from './ids';
 
-export const IDEMPOTENCY_RE = /^[A-Za-z0-9_.:-]{8,200}$/;
+export const IDEMPOTENCY_RE = /^[A-Za-z0-9_.:-]{8,128}$/;
 export const IdempotencyHeaders = z.object({
   'idempotency-key': z.string().regex(IDEMPOTENCY_RE).openapi({ description: 'Unique per logical write (UUID v4 is fine). Reuse it to retry safely.', example: '4b0c5e2a-1f7e-4c1a-9d3b-2b8f0a6c7d11' }),
 });
