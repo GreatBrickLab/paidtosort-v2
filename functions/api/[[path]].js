@@ -1,6 +1,7 @@
 // pts-v2 API router. Every /api/* request lands here.
 // Rules: versioned URLs (/api/v1/...), one error shape, one JSON log line per request.
 import spec from "../../spec/openapi.json";
+import { handleScanner } from "../../apps/scanner/pages-bundle/scanner.mjs"; // Part Scanner v2 (apps/scanner), fail-closed auth
 
 const SERVICE = "pts-v2";
 
@@ -45,7 +46,10 @@ export async function onRequest(ctx) {
   let route = "unmatched";
   try {
     const handler = routes[key];
-    if (handler) {
+    if (url.pathname.startsWith("/api/v1/scanner/")) {
+      route = "scanner";
+      res = await handleScanner(ctx.request, ctx.env, ctx);
+    } else if (handler) {
       route = key;
       res = await handler(ctx, rid);
     } else if (Object.keys(routes).some((k) => k.endsWith(" " + url.pathname))) {
@@ -59,7 +63,7 @@ export async function onRequest(ctx) {
   console.log(JSON.stringify({
     level: res.status >= 500 ? "error" : "info",
     service: SERVICE,
-    request_id: rid,
+    request_id: res.headers.get("x-request-id") || rid,
     method: ctx.request.method,
     path: url.pathname,
     route,

@@ -1,0 +1,17 @@
+node_modules/
+.dev.vars
+.dev-tokens.json
+.wrangler/
+local-d1/
+docs/vendor/
+docs/openapi.yaml
+test-logs/*.tmp
+*.log
+*.sqlite
+*.sqlite3
+*.db
+exports/
+*.bsx
+po-data/
+.env
+.env.*

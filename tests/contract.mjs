@@ -38,5 +38,36 @@ const h = await call("/api/v1/health", 200, healthSchema);
 if (h.ok !== true || h.db?.select_1 !== 1) errors.push("/api/v1/health: ok/db check not true");
 await call("/api/v1/does-not-exist", 404, { $ref: "#/components/schemas/Error" });
 
+// Scanner section (/api/v1/scanner/...): fail-closed until Accounts and Security's auth ships (milestone 2).
+// Every scanner operation in the spec, called signed out, must answer 401 application/problem+json that matches the
+// spec's Problem schema, with request_id == x-request-id and the A&S standard headers (V2-SECURITY-CONTRACT.md §4).
+const SCANNER_HEADERS = {
+  "cache-control": "private, no-store",
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "DENY",
+  "strict-transport-security": "max-age=31536000; includeSubDomains",
+  "referrer-policy": "strict-origin-when-cross-origin",
+};
+let scannerOps = 0;
+for (const [p, item] of Object.entries(spec.paths)) {
+  if (!p.startsWith("/scanner/")) continue;
+  for (const [method, op] of Object.entries(item)) {
+    if (!op || !op.operationId) continue;
+    scannerOps++;
+    const path = "/api/v1" + p.replace(/\{batch_id\}/g, "bat_contracttest00000").replace(/\{card_id\}/g, "crd_contracttest00000").replace(/\{export_id\}/g, "exp_contracttest00000");
+    const label = `${method.toUpperCase()} ${p}`;
+    if (!op.responses || !op.responses["401"]) errors.push(`${label}: 401 not documented`);
+    const res = await fetch(base + path, { method: method.toUpperCase() });
+    if (res.status !== 401) errors.push(`${label}: status ${res.status}, expected 401 while signed out`);
+    if ((res.headers.get("content-type") || "").split(";")[0] !== "application/problem+json") errors.push(`${label}: not application/problem+json`);
+    for (const [h, v] of Object.entries(SCANNER_HEADERS)) if (res.headers.get(h) !== v) errors.push(`${label}: header ${h} = ${res.headers.get(h)}, expected ${v}`);
+    const body = await res.json().catch(() => ({}));
+    check(body, { $ref: "#/components/schemas/Problem" }, label);
+    if (!res.headers.get("x-request-id") || res.headers.get("x-request-id") !== body.request_id) errors.push(`${label}: x-request-id header missing or != body request_id`);
+    for (const k of ["data", "batch", "cards", "user"]) if (k in body) errors.push(`${label}: 401 body leaks "${k}"`);
+  }
+}
+if (scannerOps === 0) errors.push("spec has no /scanner/ operations");
+
 if (errors.length) { console.error("CONTRACT FAIL\n" + errors.join("\n")); process.exit(1); }
-console.log(`CONTRACT PASS (${base}): /api/v1/health and 404 error shape match spec`);
+console.log(`CONTRACT PASS (${base}): /api/v1/health, 404 error shape and ${scannerOps} scanner operations (signed out → 401 problem+json) match spec`);

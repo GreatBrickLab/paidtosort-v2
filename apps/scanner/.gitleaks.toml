@@ -1,0 +1,21 @@
+# gitleaks config: default rules + a rule for this project's key format, so a real-looking key can never be committed.
+[extend]
+useDefault = true
+
+[[rules]]
+id = "pts-api-key"
+description = "paidtosort API key (pts_live_ or pts_test_)"
+regex = '''pts_(live|test)_[A-Za-z0-9]{32,64}'''
+keywords = ["pts_live_", "pts_test_"]
+
+[allowlist]
+description = "Gitignored local files and installed packages are not part of the repo"
+paths = [
+  '''node_modules/''',
+  '''\.dev\.vars$''',
+  '''\.dev-tokens\.json$''',
+  '''\.wrangler/''',
+  '''local-d1/''',
+  '''docs/vendor/''',
+  '''test-run\.log$''',
+]

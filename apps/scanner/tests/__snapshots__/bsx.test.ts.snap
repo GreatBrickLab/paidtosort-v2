@@ -1,0 +1,78 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`LOCK bsx-end-to-end snapshot from a real batch 1`] = `
+"<?xml version="1.0" encoding="UTF-8"?>
+<BrickStoreXML>
+ <Inventory Currency="USD">
+  <Item>
+   <ItemID>3001</ItemID>
+   <ItemTypeID>P</ItemTypeID>
+   <ColorID>5</ColorID>
+   <ItemName>Brick 2 x 4</ItemName>
+   <ColorName>Red</ColorName>
+   <Qty>2</Qty>
+   <Condition>N</Condition>
+   <Remarks>TEST-A1</Remarks>
+  </Item>
+  <Item>
+   <ItemID>3023</ItemID>
+   <ItemTypeID>P</ItemTypeID>
+   <ColorID>11</ColorID>
+   <ItemName>Plate 1 x 2</ItemName>
+   <ColorName>Black</ColorName>
+   <Qty>1</Qty>
+   <Condition>N</Condition>
+   <Remarks>TEST-A1</Remarks>
+  </Item>
+  <Item>
+   <ItemID>cty0001</ItemID>
+   <ItemTypeID>M</ItemTypeID>
+   <ColorID>0</ColorID>
+   <ItemName>Town Figure (test)</ItemName>
+   <Qty>1</Qty>
+   <Condition>N</Condition>
+   <Remarks>TEST-B2</Remarks>
+  </Item>
+ </Inventory>
+</BrickStoreXML>
+"
+`;
+
+exports[`LOCK bsx-format snapshot: BrickStoreXML, Remarks = drawer, Comments = note, fig ColorID 0, no Price/Cost 1`] = `
+"<?xml version="1.0" encoding="UTF-8"?>
+<BrickStoreXML>
+ <Inventory Currency="USD">
+  <Item>
+   <ItemID>3001</ItemID>
+   <ItemTypeID>P</ItemTypeID>
+   <ColorID>5</ColorID>
+   <ItemName>Brick 2 x 4</ItemName>
+   <ColorName>Red</ColorName>
+   <Qty>3</Qty>
+   <Condition>U</Condition>
+   <Remarks>TEST-A1</Remarks>
+  </Item>
+  <Item>
+   <ItemID>15573</ItemID>
+   <ItemTypeID>P</ItemTypeID>
+   <ColorID>86</ColorID>
+   <ItemName>Plate, Modified 1 x 2 with 1 Stud (Jumper)</ItemName>
+   <ColorName>Light Bluish Gray</ColorName>
+   <Qty>1</Qty>
+   <Condition>U</Condition>
+   <Remarks>TEST-A1</Remarks>
+   <Comments>tan &amp; &quot;scuffed&quot; &lt;x&gt;</Comments>
+  </Item>
+  <Item>
+   <ItemID>cty0001</ItemID>
+   <ItemTypeID>M</ItemTypeID>
+   <ColorID>0</ColorID>
+   <ItemName>Town Figure (test)</ItemName>
+   <Qty>1</Qty>
+   <Condition>U</Condition>
+   <Remarks>TEST-B2</Remarks>
+  </Item>
+ </Inventory>
+</BrickStoreXML>
+"
+`;
