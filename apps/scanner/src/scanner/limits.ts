@@ -18,7 +18,18 @@ export const ID_LIMITS = {
   globalPerMinute: 60,
   /** All callers together, rolling hour. 429 `limit: "global_hourly"`. */
   globalPerHour: 600,
+  /** Rate rows (scan_identify_calls) older than this are purged, a few hundred at a time, during normal naming requests. */
+  rateRowRetentionDays: 7,
 } as const;
+/** Write path (ADR 0010). */
+export const WRITE_LIMITS = {
+  /** Optimistic attempts per write before 409 `write_conflict` (jittered backoff between attempts). */
+  attempts: 8,
+  /** Chance that a reserved naming also purges old rate rows (bounded delete). */
+  identifyPurgeChance: 0.05,
+} as const;
+/** Idempotency-Key and sync client_event_id length (must agree with the scan_events CHECK). */
+export const KEY_MAX = 128;
 /** Max JSON body on every other route (no images allowed there). Over → 413 `body_too_large`. */
 export const MAX_JSON_BODY_BYTES = 256 * 1024;
 /** Events per batch (G8): bounds replay cost. Over → 409 `batch_event_limit` (routes) or rejected (sync). */

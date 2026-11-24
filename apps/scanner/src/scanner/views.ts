@@ -11,10 +11,12 @@ export interface BatchRow {
   summary_json: string; created_at: string; updated_at: string; finished_at: string | null; processed_at: string | null; processed_by: string | null;
 }
 
-/** The cached summary stored in scan_batches.summary_json, rebuilt on every append. */
+const findCounts = (fs: Record<string, unknown>[]) => ({ held: fs.filter((f) => f.type === 'held').length, parts_we_need: fs.filter((f) => f.type === 'parts_we_need').length });
+
+/** The cached summary stored in scan_batches.summary_json, rebuilt on every append. Counts only (bounded size, ADR 0009). */
 export function summaryOf(s: BatchState, cat: Catalog) {
   return { owner_name: s.batch.owner_name, note: s.batch.note, counts: counts(s, cat), estimated_value_cents: toCents(batchValue(s, cat)),
-    current_drawer: s.current_drawer, exports: s.exports.length, finds: finds(s, cat) };
+    current_drawer: s.current_drawer, exports: s.exports.length, finds_count: findCounts(finds(s, cat)) };
 }
 
 export function batchView(row: BatchRow) {

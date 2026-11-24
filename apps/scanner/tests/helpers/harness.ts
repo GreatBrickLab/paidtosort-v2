@@ -30,7 +30,7 @@ export type Who = keyof typeof PEOPLE;
 
 const SCHEMA_SQL = readFileSync(new URL('../../proposed-schema/0001_scan_tables.sql', import.meta.url), 'utf8');
 
-export async function setup(opts: { limit?: number; perMinute?: number; globalPerMinute?: number; globalPerHour?: number; eventsPerBatch?: number; defaults?: boolean; defaultRecognizer?: boolean; now?: () => Date; rateLimit?: import('../../src/platform/ratelimit').RateLimitHook } = {}) {
+export async function setup(opts: { limit?: number; perMinute?: number; globalPerMinute?: number; globalPerHour?: number; eventsPerBatch?: number; writeAttempts?: number; purgeChance?: number; defaults?: boolean; defaultRecognizer?: boolean; now?: () => Date; rateLimit?: import('../../src/platform/ratelimit').RateLimitHook } = {}) {
   const mf = new Miniflare({ modules: true, script: 'export default { fetch() { return new Response(null) } }', d1Databases: ['DB'] });
   const db = await mf.getD1Database('DB');
   const stmts = SCHEMA_SQL.replace(/--[^\n]*/g, '').split(/;\s*\n/).map((x) => x.trim()).filter(Boolean);
@@ -40,11 +40,14 @@ export async function setup(opts: { limit?: number; perMinute?: number; globalPe
   const recognizer = new StubRecognizer();
   const logs: Record<string, unknown>[] = [];
   // `defaults: true` builds the app exactly as shipped (DenyAllVerifier, no recognizer configured): nothing injected.
-  const app = opts.defaults ? createApp({ log: (l) => logs.push(l) }) : createApp({ verifier: new FakeLocalVerifier(tokens), deps: { ...(opts.defaultRecognizer ? {} : { recognizer }), identifyHourlyLimit: opts.limit ?? 100, identifyPerMinuteLimit: opts.perMinute ?? 20,
-    identifyGlobalPerMinute: opts.globalPerMinute, identifyGlobalPerHour: opts.globalPerHour, eventsPerBatch: opts.eventsPerBatch, now: opts.now, rateLimit: opts.rateLimit }, log: (l) => logs.push(l) });
+  const make = () => (opts.defaults ? createApp({ log: (l) => logs.push(l) }) : createApp({ verifier: new FakeLocalVerifier(tokens), deps: { ...(opts.defaultRecognizer ? {} : { recognizer }), identifyHourlyLimit: opts.limit ?? 100, identifyPerMinuteLimit: opts.perMinute ?? 20,
+    identifyGlobalPerMinute: opts.globalPerMinute, identifyGlobalPerHour: opts.globalPerHour, eventsPerBatch: opts.eventsPerBatch, writeAttempts: opts.writeAttempts, identifyPurgeChance: opts.purgeChance ?? 0,
+    now: opts.now, rateLimit: opts.rateLimit }, log: (l) => logs.push(l) }));
+  // app2 = a second isolate on the same D1 (its own in-memory per-batch queue), for cross-isolate race tests.
+  const app = make(); const app2 = make();
   const env = { DB: db };
 
-  async function call(who: Who | null, method: string, path: string, o: { body?: unknown; form?: FormData; raw?: BodyInit; key?: string | null; headers?: Record<string, string>; host?: string } = {}) {
+  async function call(who: Who | null, method: string, path: string, o: { body?: unknown; form?: FormData; raw?: BodyInit; key?: string | null; headers?: Record<string, string>; host?: string; app?: 1 | 2 } = {}) {
     const headers: Record<string, string> = { ...(o.headers ?? {}) };
     if (who) headers.authorization = `Bearer ${tokenOf[who]}`;
     if (['POST', 'PATCH'].includes(method) && o.key !== null) headers['idempotency-key'] = o.key ?? `k-${rand(16)}`;
@@ -52,7 +55,7 @@ export async function setup(opts: { limit?: number; perMinute?: number; globalPe
     if (o.raw !== undefined) body = o.raw; else if (o.form) body = o.form; else if (o.body !== undefined) { body = JSON.stringify(o.body); headers['content-type'] = 'application/json'; }
     const init: RequestInit & { duplex?: 'half' } = { method, headers, body };
     if (body instanceof ReadableStream) init.duplex = 'half';
-    const res = await app.request(o.host ? `https://${o.host}/api/v1${path}` : `/api/v1${path}`, init, env);
+    const res = await (o.app === 2 ? app2 : app).request(o.host ? `https://${o.host}/api/v1${path}` : `/api/v1${path}`, init, env);
     const text = await res.text();
     let json: any = null; try { json = JSON.parse(text); } catch { /* not json */ }
     return { status: res.status, headers: res.headers, text, json };

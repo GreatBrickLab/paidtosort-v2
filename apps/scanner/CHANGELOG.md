@@ -8,6 +8,13 @@ All notable changes. Format: Keep a Changelog. Contract versions follow Chris's 
 - Platform module `src/platform/` (ids, problem+json, paging, idempotency, base app, security headers and guards, stub auth, rate-limit hook).
 - A&S security kit mirror (9 tests × every route), route, rule, contract, platform, BSX snapshot and recognizer tests.
 - DONE.md, ROLLBACK.md, docs/adr/0001–0007, CI workflow (vitest, spectral, gitleaks), `.gitleaks.toml` with a `pts_` key rule.
+### Fixed (~1:00 PM CT, A&S follow-ups to PR #1, patch 0004, branch `scanner/as-review-followups` on main 68de923)
+- Key length: `Idempotency-Key` and sync `client_event_id` are 8–128 chars in the app and spec, matching the `client_event_id` CHECK (now `BETWEEN 1 AND 128`); 2nd+ events of one write use `#<n>#<40 hex>` ids. Before: 129–200-char keys gave 500/409 `internal`.
+- Constraint failures: CHECK / NOT NULL / FOREIGN KEY → 422 `constraint_violation` at once (nothing saved); only UNIQUE / PRIMARY KEY is retried.
+- Concurrent writes: per-batch queue inside an isolate, up to 8 jittered attempts across isolates, then 409 `write_conflict` + `Retry-After: 1` (was 409 `internal` after 5). Naming results are stored per caller + key + crop and reused on retry (no 2nd recognizer call, no 2nd slot). ADR 0010.
+- Schema: `summary_json` counts only, CHECK ≤ 4096 (finds list rebuilt from events, ADR 0009); `scan_events_user_at` dropped; timestamp CHECKs on all `at` / `*_at`; `scan_identify_calls` gains `idempotency_key`, `crop_sha256`, `result_json` + reuse index.
+- Cleanup: rate rows older than 7 days purged in normal naming requests (bounded); `Store.purgeExpiredBatches()` deletes events before their batch (tested, not switched on).
+- Tests: `tests/as-followups.test.ts` (10). Problem codes added: `write_conflict`, `constraint_violation`.
 ### Fixed (12:30 PM CT, A&S review M1/M1b/G1–G8 and Web Boss review)
 - M1: auth now runs before anything reads the body (signed-out 5 MB upload → 401, body not read). Only header checks run before auth.
 - G1: request size caps count bytes actually received (streamed), not Content-Length.

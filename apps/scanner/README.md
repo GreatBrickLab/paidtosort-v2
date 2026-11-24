@@ -40,6 +40,8 @@ A&S rules (12:01 PM CT) for `POST /scanner/batches/{batch_id}/cards` and `POST /
 | Per caller, per hour (rolling, per user) | **100** (env `IDENTIFY_HOURLY_LIMIT`) | 429 `rate_limited`, `limit: "hourly"`, `Retry-After` |
 | All callers together, per minute / per hour | **60 / 600** | 429 `rate_limited`, `limit: "global_minute"` / `"global_hourly"` |
 | How counted | one row in `scan_identify_calls`, reserved atomically **before** each recognizer call (failed calls count) | |
+| Retry of the same request (same key + crop) | reuses the stored naming result: no 2nd recognizer call, no 2nd slot | |
+| Rate rows kept | **7 days**, purged in the app (≤ 500 rows on ~1 in 20 namings) | |
 | Platform rate-limit hook (per user + key) | placeholder allows all; A&S plugs in | 429 `rate_limited`, `Retry-After` |
 | No recognizer configured | `RECOGNIZER` unset → | 503 `recognizer_not_configured` |
 | Whole request body (bytes actually received, after auth) | **400 KB** | 413 `body_too_large` |
@@ -47,6 +49,9 @@ A&S rules (12:01 PM CT) for `POST /scanner/batches/{batch_id}/cards` and `POST /
 | Crops per request | **1** | 400 `too_many_crops` |
 | Every other route: JSON body (bytes received) | **256 KB**, no image data | 413 `body_too_large` / 415 |
 | Events per batch | **5,000** | 409 `batch_event_limit` (sync: rejected) |
+| `Idempotency-Key` / sync `client_event_id` | **8–128** chars `[A-Za-z0-9_.:-]` (matches the schema CHECK) | 400 |
+| Concurrent writes to one batch | queued per batch; across isolates up to **8** attempts | 409 `write_conflict` + `Retry-After: 1` (nothing saved; retry with the same key) |
+| A value breaks a storage rule (CHECK) | never retried | 422 `constraint_violation` |
 | Sync payloads | allow-listed keys per event type; same text limits as routes (name 60, batch note 500, card note 200, drawer code 40) | rejected `unknown_payload_key` / `bad_note` |
 
 Why 20/min: a phone photo usually has 5–15 parts, each one crop; 20/min lets a sorter finish one busy photo without waiting but stops a runaway loop well below the free recognizer tier.
