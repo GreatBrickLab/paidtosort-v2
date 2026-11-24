@@ -62,3 +62,33 @@ jobs:
             sleep 2
           done
           node tests/contract.mjs http://127.0.0.1:8799 || { cat dev.log; exit 1; }
+
+  # Part Scanner v2 (apps/scanner). Optional second job, proposed in handoff/0002; does not change the required `check` job.
+  scanner:
+    name: scanner
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/scanner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/scanner/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Contract is generated from the code (no drift)
+        run: npm run spec && git diff --exit-code contract/
+      - name: Spectral lint (scanner rules, zero warnings)
+        run: npm run lint:spec
+      - name: Tests (A&S security kit mirror, routes, rules, contract)
+        run: npm test
+      - name: Pages bundle is rebuilt from the source (no drift)
+        run: npm run bundle:pages && git diff --exit-code pages-bundle/
+      - name: Platform spec has the current scanner contract
+        working-directory: .
+        run: node apps/scanner/scripts/merge-platform-spec.mjs --check
