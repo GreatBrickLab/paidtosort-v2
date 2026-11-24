@@ -1,0 +1,80 @@
+# Cloudflare / wrangler credentials and local state (~/.cloudflare-style files)
+.cloudflare/
+.cloudflare*
+*cloudflare*token*
+*cf-token*
+*cf_token*
+.wrangler/
+.wrangler-*
+wrangler-account.json
+
+# Environment and local secrets
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+*.secret
+*.secrets
+secrets*
+*secret*.json
+*secret*.txt
+*token*.txt
+*token*.json
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Test logins (any form)
+*test_login*
+*test-login*
+*testlogin*
+*test_logins*
+*test-logins*
+
+# IDs files (account, zone, database or deploy IDs)
+*ids*.json
+*ids*.txt
+*-ids.*
+*_ids.*
+
+# Database exports, dumps and local databases
+*.sql
+!migrations/*.sql
+*.sql.gz
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+*.dump
+*.bak
+*.bak-*
+*.backup
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.csv
+
+# Backups
+backup/
+backups/
+*backup*/
+*-backup*
+*_backup*
+*.orig
+
+# Node and build output
+node_modules/
+dist/
+.cache/
+coverage/
+
+# Editor / OS noise
+.DS_Store
+*.log
+
+# Internal deploy notes (kept outside the repo)
+DEPLOY-LOG.md

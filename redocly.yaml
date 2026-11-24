@@ -1,0 +1,6 @@
+# Spec lint rules for spec/openapi.json (Redocly CLI, free).
+extends:
+  - recommended
+rules:
+  # No auth exists yet (milestone 2). Turn back to error once /auth ships.
+  security-defined: warn

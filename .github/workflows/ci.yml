@@ -1,0 +1,64 @@
+# CI for Paid to Sort v2. Free GitHub-hosted runner, free open-source tools, no repo secrets.
+# Runs on every pull request and on every push to main. Never deploys anything.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      WRANGLER_SEND_METRICS: "false"
+      GITLEAKS_VERSION: "8.28.0"
+      WRANGLER_VERSION: "4.168.0"
+      REDOCLY_VERSION: "2.83.0"
+    steps:
+      - name: Check out (full history for gitleaks)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Gitleaks (stop on any finding)
+        run: |
+          set -euo pipefail
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          curl -sSfL -o gitleaks.tar.gz "${base}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o checksums.txt "${base}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          grep " gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz$" checksums.txt | sed 's/gitleaks_.*/gitleaks.tar.gz/' | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+          ./gitleaks git . --redact --no-banner --exit-code 1
+          ./gitleaks dir . --redact --no-banner --exit-code 1
+          rm -f gitleaks gitleaks.tar.gz checksums.txt
+
+      - name: Spec is valid JSON
+        run: node -e "JSON.parse(require('fs').readFileSync('spec/openapi.json','utf8'))"
+
+      - name: Spec lint (Redocly)
+        run: npx --yes "@redocly/cli@${REDOCLY_VERSION}" lint spec/openapi.json
+
+      - name: Contract test on local wrangler pages dev (local D1, no Cloudflare account)
+        run: |
+          set -euo pipefail
+          npx --yes "wrangler@${WRANGLER_VERSION}" pages dev public --d1 DB=pts-v2-ci --ip 127.0.0.1 --port 8799 > dev.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -s -o /dev/null http://127.0.0.1:8799/api/v1/health; then break; fi
+            sleep 2
+          done
+          node tests/contract.mjs http://127.0.0.1:8799 || { cat dev.log; exit 1; }

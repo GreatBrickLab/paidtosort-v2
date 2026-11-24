@@ -1,0 +1,58 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Paid to Sort v2 API", "version": "1.0.0", "description": "Source of truth for the v2 API. The docs page is rendered from this spec." },
+  "servers": [{ "url": "/api/v1" }],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Service health, including a database check",
+        "responses": {
+          "200": { "description": "Healthy", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Health" } } } },
+          "503": { "description": "Database check failed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "operationId": "getSpec",
+        "summary": "This OpenAPI spec",
+        "responses": { "200": { "description": "The spec", "content": { "application/json": {} } } }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Health": {
+        "type": "object",
+        "required": ["ok", "service", "version", "db", "request_id", "time"],
+        "properties": {
+          "ok": { "type": "boolean" },
+          "service": { "type": "string", "example": "pts-v2" },
+          "version": { "type": "string", "example": "v1" },
+          "db": { "type": "object", "properties": { "ok": { "type": "boolean" }, "select_1": { "type": "integer" }, "ms": { "type": "integer" } } },
+          "request_id": { "type": "string" },
+          "time": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message", "request_id"],
+            "properties": {
+              "code": { "type": "string", "example": "not_found" },
+              "message": { "type": "string" },
+              "request_id": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "NotFound": { "description": "Unknown route", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+    }
+  }
+}

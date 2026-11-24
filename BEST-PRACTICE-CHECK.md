@@ -1,0 +1,83 @@
+# v2.paidtosort.com — 18 base requirements vs. best practice
+
+Lookup only. Written 2026-11-24 (America/Chicago). No site, Cloudflare or code changes were made.
+Context: a small team doing a ground-up API-first rebuild on Cloudflare Pages/Workers + D1 + KV. Users are about 10 sorters plus staff. Planned: Part Scanner (camera), sorter pay, and Bricqer integration through API keys.
+Every link below was fetched and returned HTTP 200 on 2026-11-24. Book points are paraphrased from the books' published scope, not quoted.
+
+## Verdict table
+
+| # | Requirement | Verdict | Source(s) | Note |
+|---|---|---|---|---|
+| 1 | 100% API-driven, no hardcoded data or client logic | **adjust** | Lauret, *The Design of Web APIs* 2e ([Manning](https://www.manning.com/books/the-design-of-web-apis-second-edition)); Higginbotham, *Principles of Web API Design* ([InformIT](https://www.informit.com/store/principles-of-web-api-design-delivering-value-with-9780137355631)); OWASP API Top 10 2023 ([list](https://owasp.org/API-Security/editions/2023/en/0x11-t10/)) | API-first means every piece of data and every business rule lives behind the API. It does not mean "zero client code". UI state, form checks for good UX, routing and rendering still have to run on the client. Suggested wording: "all data and all business rules come from the API; the client may only do presentation, UI state and convenience validation that the server repeats." The server must be the authority (OWASP API1/API3/API5). |
+| 2 | Auth as a first-class API (tokens + email codes) | **aligned, add detail** | OAuth 2.0 Security BCP, [RFC 9700](https://www.rfc-editor.org/rfc/rfc9700); OWASP API2:2023 Broken Authentication; [OWASP REST Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html) | Good. Spell out short-lived access tokens, refresh/rotation, revocation (logout, lost phone), email-code expiry with attempt limits, and rate limits on code sends. For the browser, an HttpOnly cookie carrying the token is usually safer than localStorage. |
+| 3 | URL versioning (/api/v1) | **aligned (adjust policy)** | Google [AIP-185](https://google.aip.dev/185) (major version in the path); [Zalando guidelines](https://opensource.zalando.com/restful-api-guidelines/) ("MUST not use URL versioning"; prefers compatible evolution or media-type versioning); [Microsoft/Azure guidelines](https://github.com/microsoft/api-guidelines/blob/vNext/azure/Guidelines.md) (api-version query param); [Stripe versioning](https://docs.stripe.com/api/versioning) (dated versions pinned per account) | The sources disagree, so /v1 is a defensible choice that Google uses. Put only the major version in the URL, and bump it only for breaking changes. Evolve compatibly in between by adding fields, never removing or renaming them. |
+| 4 | Observability (structured logs, health endpoints) | **aligned** | Cloudflare [Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/) | Workers Logs indexes JSON console output. Add a request ID on every response, carry it into the error body and logs, and never log tokens, email codes or PII. Keep a cheap liveness check separate from the deeper DB/KV readiness check. |
+| 5 | Uniform error contract | **aligned** | IETF [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) Problem Details; Google [AIP-193](https://google.aip.dev/193); Zalando (problem JSON) | Use RFC 9457 `application/problem+json` (type, title, status, detail, instance) plus a stable machine `code` and the request ID. |
+| 6 | Rate limiting before launch | **aligned, note limits** | OWASP API4:2023 Unrestricted Resource Consumption, API6:2023 sensitive business flows; Cloudflare [Rate Limiting binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/); IETF [RateLimit headers draft](https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/) | The Cloudflare docs say the binding is approximate and eventually consistent, with counts cached per location. That is fine for abuse protection. Do not use it for exact quotas such as pay or payout caps; enforce those in D1. Put the tightest limits on email-code sends and login. |
+| 7 | Migration path from the old system | **aligned** | Higginbotham (planning API change and adoption); Google [AIP-180](https://google.aip.dev/180) backwards compatibility | Make it a repeatable, idempotent import script with dry-run, row counts and a reconciliation report, run against a copy first. It still needs Chris's typed OK before any real data is copied. |
+| 8 | API docs generated from the spec | **aligned** | [OpenAPI 3.1 spec](https://spec.openapis.org/oas/v3.1.0); Lauret and Higginbotham (design-first, contract before code) | Choose one source of truth: either the spec file (design-first) or code-first schemas that emit the spec, such as chanfana or @hono/zod-openapi (see Skills and tools). Then docs, validation (#12), contract tests (#16) and the client SDK all come from that one source. |
+| 9 | Idempotency keys on writes | **adjust scope** | IETF [Idempotency-Key header draft](https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/) (still a draft, -09); [Stripe idempotent requests](https://docs.stripe.com/api/idempotent_requests); [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110) (PUT and DELETE are already idempotent by definition) | Require the key on POST and PATCH that create things or move money (batches, approvals, pay). PUT and DELETE are idempotent by design. Store key, request hash and response, reject a reused key with a different body, and set an expiry window (Stripe documents 24 h). Store keys in D1, not KV: KV is eventually consistent, so two fast retries could both get through. |
+| 10 | Sandbox at sandbox.v2.paidtosort.com with seeded fake data | **risky (overkill for now)** | *Team Topologies* ([book](https://teamtopologies.com/book)) on limiting team cognitive load; [Stripe](https://docs.stripe.com/api/versioning) test mode as the model; 12-Factor [config/parity](https://12factor.net/config) | A small team running three environments (v2, sandbox.v2, then staging and prod) adds deploy, secret and schema-drift overhead. Start with a seeded preview or dev D1 database and a `seed` script, plus test-mode API keys. Promote to a full sandbox subdomain when Bricqer or outside bots actually need it. |
+| 11 | Permissions/scopes per role and per API key | **aligned, add object-level** | OWASP API1:2023 BOLA, API3 property level, API5 function level; Google [AIP-211](https://google.aip.dev/211) authorization checks | Scopes alone are not enough. Every handler must check that the caller may touch this specific object (sorter A cannot read sorter B's pay or batches). Make that check a shared helper and test it. |
+| 12 | Schema validation from the spec | **aligned** | OpenAPI 3.1; OWASP API3 (mass assignment, excessive data exposure); Zalando | Validate requests and also strip or validate responses so internal fields never leak. Reject unknown fields on writes. |
+| 13 | Shared paging/filtering | **aligned** | Google [AIP-158](https://google.aip.dev/158) pagination, [AIP-160](https://google.aip.dev/160) filtering; Zalando (cursor-based pagination preferred) | Use opaque cursor tokens with a max page size, and make even small lists paged from day one. |
+| 14 | Audit log | **aligned** | OWASP API9 / logging guidance; Geewax, *API Design Patterns* ([Manning](https://www.manning.com/books/api-design-patterns)) | Append-only D1 table: who (user or key), what, object, before and after, time (UTC), request ID. Write it in the same transaction or batch as the change. |
+| 15 | Backups with a tested restore | **aligned, add long-term copy** | Cloudflare [D1 Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/) | Time Travel restores to any minute within 30 days on Workers Paid (7 on Free). The docs suggest exporting to R2 to keep anything longer, which matters for pay records. KV is not covered by Time Travel, so keep nothing authoritative only in KV. Schedule a restore drill. |
+| 16 | Contract tests gating deploys | **aligned** | OpenAPI; [Schemathesis](https://github.com/schemathesis/schemathesis) (property-based tests from the spec); Spectral / Redocly lint | Lint the spec (style rules), run tests from the spec against a preview deploy, and fail CI on a breaking diff. |
+| 17 | Deprecation policy | **aligned** | IETF [RFC 9745](https://www.rfc-editor.org/rfc/rfc9745) Deprecation header; [RFC 8594](https://www.rfc-editor.org/rfc/rfc8594) Sunset header; Google AIP-180/185; Zalando | Announce in the docs, send `Deprecation` and `Sunset` headers, and set a minimum notice period (for example 90 days for Bricqer). |
+| 18 | Money in cents, times in UTC | **aligned** | Stripe API (integer amounts in the smallest currency unit); Google [AIP-142](https://google.aip.dev/142) time and duration; Zalando (RFC 3339 dates) | Integer cents plus an ISO 4217 currency field. Timestamps as RFC 3339 UTC strings (`Z`), converted to local time only in the UI. |
+
+## Missing (recommended additions)
+
+1. **Object-level authorization (OWASP API1 BOLA)** as an explicit rule with tests. This is #1 on the OWASP list and matters most for pay and batches. ([OWASP](https://owasp.org/API-Security/editions/2023/en/0x11-t10/))
+2. **CORS allow-list and security headers** (HSTS, no wildcard origins with credentials, `X-Content-Type-Options`, CSP for the page). OWASP API8 Security Misconfiguration; [REST Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html).
+3. **Token lifecycle**: access-token lifetime, refresh rotation, revocation list, API-key hashing at rest, and key prefixes for leak scanning. [RFC 9700](https://www.rfc-editor.org/rfc/rfc9700).
+4. **Secret rotation**: Workers secrets per environment, a rotation runbook, and support for two valid signing keys during the switch. [12-Factor config](https://12factor.net/config).
+5. **PII and data retention**: what is kept on sorters (email, pay), for how long, how it is deleted, and log redaction.
+6. **Webhook signing** for when Bricqer or others get events: HMAC signature, timestamp, replay window. [Standard Webhooks](https://www.standardwebhooks.com/).
+7. **Consistent resource naming**: plural nouns, stable IDs, standard methods. Google [AIP-122](https://google.aip.dev/122) resource names; Zalando naming rules. Enforce it with a Spectral or Redocly ruleset.
+8. **ETags / optimistic concurrency** on updates (`If-Match`, 412 on conflict), so two staff approving the same card don't overwrite each other. Google [AIP-154](https://google.aip.dev/154); [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110) conditional requests.
+9. **Client/SDK generated from the spec** (typed fetch client for the page and for Bricqer). This makes #1 practical. See Skills and tools.
+10. **Request IDs / correlation** (also AIP-155 request IDs for idempotent creates: [AIP-155](https://google.aip.dev/155)), tied into #4 and #5.
+11. **D1 consistency note**: if read replication is ever enabled, use the Sessions API for read-after-write. ([D1 read replication](https://developers.cloudflare.com/d1/best-practices/read-replication/))
+
+## Unnecessary or risky as written
+
+- **#1 "zero client logic"**: too absolute and not realistic. Reword to "no data or business rules on the client".
+- **#10 separate sandbox subdomain now**: overkill for a small team. Use a seeded preview DB and test-mode keys first, and add the subdomain when outside integrators need it.
+- **#9 "all write endpoints"**: too broad. Target POST/PATCH creates and money moves, and store keys in D1, not KV.
+- **#6 relying on the Workers rate-limit binding for exact limits**: it's approximate by design. Use D1 for anything that must be exact.
+- **#3 URL versioning**: fine, but a frequent major-bump habit is the risk. Zalando argues against URL versions entirely, so pair it with a strict compatible-evolution rule.
+- **#15 counting on Time Travel alone**: the 30-day window and the lack of KV coverage are gaps for pay records.
+- **Idempotency-Key header is still an IETF draft** (-09): fine to adopt, since Stripe-style practice is widespread, but treat details as subject to change.
+
+## Skills and tools (lookup only, nothing installed)
+
+GitHub stars and last-push dates were read from the GitHub API on 2026-11-24.
+
+### Top picks for v2
+
+1. **chanfana**: Cloudflare's OpenAPI 3/3.1 schema generator and validator for Hono and itty-router on Workers. One code-first source gives you #8 docs, #12 validation and the spec for #16. https://github.com/cloudflare/chanfana (about 776 stars, pushed 2026-11-23). Free, open source.
+   - Alternative: **@hono/zod-openapi** (v1.6.3 on npm), part of https://github.com/honojs/middleware (about 1,005 stars, pushed 2026-11-24). Zod schemas become the OpenAPI spec. Free. Pick one of the two, not both.
+2. **Redocly CLI**: lints and validates OpenAPI, bundles it, and builds docs. Covers #8, #16 and #17 (it can flag breaking changes in CI). https://github.com/Redocly/redocly-cli (about 1,564 stars, pushed 2026-11-24). The CLI is free; Redocly's hosted portal is **paid**.
+3. **Spectral + a Zalando ruleset**: a style-guide linter that enforces naming, paging and error rules automatically (missing item 7, plus #5 and #13). https://github.com/stoplightio/spectral (about 3,263 stars, pushed 2026-11-13). The Zalando ruleset is https://github.com/baloise-incubator/spectral-ruleset (about 30 stars, pushed 2026-09-07; small project, check fit). The guidelines themselves are https://github.com/zalando/restful-api-guidelines (about 3,273 stars). Free. Zalando's own linter **zally** (https://github.com/zalando/zally, about 948 stars) is a heavier server app, so Spectral fits better.
+4. **openapi-typescript (+ openapi-fetch)**: generates TypeScript types and a tiny typed client from the spec, so the page never hand-writes API shapes (#1, missing item 9). https://github.com/openapi-ts/openapi-typescript (about 8,442 stars, pushed 2026-09-25). Free.
+   - Alternative with more plugins (SDKs, validators, mocks): **Hey API**, https://github.com/hey-api/hey-api (about 5,605 stars, pushed 2026-11-08). Free.
+5. **Schemathesis**: generates property-based tests from the OpenAPI spec and runs them against a preview deploy as the CI gate for #16. https://github.com/schemathesis/schemathesis (about 3,813 stars, pushed 2026-11-24). Open source; there is also a **paid** hosted service.
+
+### Agent skill packs checked
+
+- **anthropics/skills** (https://github.com/anthropics/skills, about 199,829 stars, pushed 2026-11-16). It has no API-design or OpenAPI skill; the nearest are `mcp-builder` and `webapp-testing`. Useful only as a SKILL.md format reference.
+- **VoltAgent/awesome-agent-skills** (https://github.com/VoltAgent/awesome-agent-skills, about 37,509 stars). Relevant entries: `speakeasy-api/sdk-generation-skills` (https://github.com/speakeasy-api/sdk-generation-skills, about 18 stars, last push 2026-02-10; tied to the Speakeasy CLI, which is **paid** beyond its free tier) and `MiniMax-AI/fullstack-dev` (generic REST/auth). Nothing Cloudflare- or OpenAPI-first worth adopting as-is.
+- **ComposioHQ/awesome-claude-skills** (about 80,233 stars) and **travisvn/awesome-claude-skills** (about 15,926 stars): no OpenAPI or API-design skill found in their READMEs.
+- **PatrickJS/awesome-cursorrules** (about 41,180 stars, last push 2026-05-30): general rules files, nothing that beats a project-specific skill.
+- **Conclusion:** no off-the-shelf API-first skill fits v2. The best skill is a small project skill, `v2-api-rules`, that encodes the 18 requirements (plus additions) and runs Spectral, Redocly and Schemathesis. Pair it with the already-installed Cloudflare skills (workers-best-practices, wrangler, durable-objects), pstack make-operations-idempotent, and Stripe best-practices.
+
+### Marketplace items the parent already found (not re-searched)
+
+- **Postman (2050):** useful for mocks before build and governance checks in CI. Overlaps with Redocly/Spectral and Schemathesis. Team features are **paid**.
+- **WorkOS (6067):** RBAC, audit logs and auth. Strong fit for #2, #11 and #14 if you'd rather buy than build. **Paid** past the free tier, and it conflicts with "auth as our own first-class API".
+- **ReadMe (66638239):** hosted docs, **paid**. Redocly CLI covers this for free.
+- **Kong Konnect (73008608):** API gateway, overkill on Workers, **paid**.
+- **Snyk API & Web (26101348):** DAST scans, likely **paid**. Consider it before Bricqer goes live.
+- **Encore (3780):** a different backend framework that doesn't fit Workers/D1. Skip it.

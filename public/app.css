@@ -1,0 +1,4 @@
+body{font-family:system-ui,sans-serif;margin:2rem;color:#222;background:#fafafa}
+@media (prefers-color-scheme:dark){body{color:#eee;background:#161616}}
+dl{display:grid;grid-template-columns:max-content 1fr;gap:.4rem 1rem}
+dt{font-weight:600}
