@@ -1,6 +1,7 @@
 // One batch = one append-only event list. State = reduce(events). This module is the ONLY place card states, counts,
 // lots, Finish rules and summaries are worked out (ideas from part-scanner-v2-wip shared/reducer.js, reviewed Nov 24 2026,
 // rewritten for snake_case server events). Pure: never mutates its input.
+import { TEXT_LIMITS } from './limits';
 import type { Catalog } from './adapters/catalog';
 import type { Candidate } from './adapters/recognizer';
 import { normDrawer } from './names';
@@ -14,6 +15,11 @@ export type CardState = (typeof UNDECIDED_STATES)[number] | Decision;
 export const EVENT_TYPES = ['batch.created', 'batch.renamed', 'batch.noted', 'drawer.opened', 'photo.taken', 'card.added', 'card.updated',
   'card.edited', 'card.decided', 'card.reopened', 'batch.finished', 'batch.reopened', 'batch.exported', 'batch.processed'] as const;
 export const CLIENT_EVENT_TYPES = new Set(['batch.renamed', 'batch.noted', 'drawer.opened', 'photo.taken', 'card.edited', 'card.decided', 'card.reopened']);
+/** G7: the only payload keys a device may send, per event type. Anything else is rejected `unknown_payload_key`. */
+export const PAYLOAD_KEYS: Record<string, readonly string[]> = {
+  'batch.renamed': ['name'], 'batch.noted': ['note'], 'drawer.opened': ['code'], 'photo.taken': ['photo_id', 'boxes', 'drawer_code'],
+  'card.edited': ['card_id', 'field', 'to'], 'card.decided': ['card_id', 'state'], 'card.reopened': ['card_id'],
+};
 
 export interface Identify { status: 'ok' | 'none' | 'error' | 'identifying'; candidates?: Candidate[]; source?: 'recognizer' | 'part_out'; error_code?: string; retry_after_s?: number }
 export interface StoredEvent { seq: number; type: string; payload: Record<string, any>; user_id: string; key_id?: string | null; device_id: string | null; at: string; client_event_id?: string }
@@ -224,9 +230,15 @@ export function rejectReason(s: BatchState, e: { type: string; payload: Record<s
   if (!(EVENT_TYPES as readonly string[]).includes(e.type)) return 'unknown_event_type';
   if (!CLIENT_EVENT_TYPES.has(e.type)) return 'route_only';
   const st = s.batch.status; const p = e.payload || {};
+  const keys = PAYLOAD_KEYS[e.type];
+  if (keys && Object.keys(p).some((k) => !keys.includes(k))) return 'unknown_payload_key';
+  if (e.type === 'batch.noted' && !(typeof p.note === 'string' && p.note.length <= TEXT_LIMITS.batchNote)) return 'bad_note';
+  if (e.type === 'drawer.opened' && !(typeof p.code === 'string' && p.code.length <= TEXT_LIMITS.drawerCode)) return 'bad_drawer_code';
+  if (e.type === 'photo.taken' && p.drawer_code !== undefined && !(typeof p.drawer_code === 'string' && p.drawer_code.length <= TEXT_LIMITS.drawerCode)) return 'bad_drawer_code';
+  if (e.type === 'card.edited' && p.field === 'note' && !(typeof p.to === 'string' && p.to.length <= TEXT_LIMITS.cardNote)) return 'bad_note';
   if (st === 'processed') return 'batch_processed';
   if (st === 'finished' && !['batch.renamed', 'batch.noted'].includes(e.type)) return 'batch_finished';
-  if (e.type === 'batch.renamed' && !(typeof p.name === 'string' && p.name.trim() && p.name.length <= 60)) return 'bad_name';
+  if (e.type === 'batch.renamed' && !(typeof p.name === 'string' && p.name.trim() && p.name.length <= TEXT_LIMITS.batchName)) return 'bad_name';
   if (e.type === 'drawer.opened' && !normDrawer(p.code)) return 'bad_drawer_code';
   if (e.type === 'photo.taken') {
     if (!/^pho_[A-Za-z0-9]{10,32}$/.test(String(p.photo_id ?? ''))) return 'bad_photo_id';

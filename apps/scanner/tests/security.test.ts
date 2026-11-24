@@ -1,9 +1,9 @@
 // Mirrors the 9 tests of A&S's security kit (V2-SECURITY-CONTRACT.md §5, DRAFT 1) for every scanner route, so they can be
 // swapped for A&S's shared helper later. Differences from the kit's literal text are listed in README (error shape).
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { STANDARD_HEADERS } from '../src/platform/security';
+import { SESSION_COOKIE, STANDARD_HEADERS } from '../src/platform/security';
+const SESSION = `${SESSION_COOKIE}=sess-test-value`;
 import { SPEC, type H, type Who, addCard, batchWithDrawer, cardForm, conforms, crop, setup } from './helpers/harness';
 
 let h: H;
@@ -117,9 +117,9 @@ describe.each(Object.entries(ROUTES))('%s', (op, r) => {
   }
   if (r.method !== 'GET') {
     test('kit #8 cookie writes from another origin are refused; key-auth from curl (no Origin) works', async () => {
-      const res = conforms(await send(null, r, { cookie: 'session=abc', origin: 'https://evil.example' }), r.method, r.tpl);
+      const res = conforms(await send(null, r, { cookie: SESSION, origin: 'https://evil.example' }), r.method, r.tpl);
       expect(res.status).toBe(403); expect(res.json.code).toBe('cross_origin_refused');
-      const site = await send(null, r, { cookie: 'session=abc', 'sec-fetch-site': 'cross-site' });
+      const site = await send(null, r, { cookie: SESSION, 'sec-fetch-site': 'cross-site' });
       expect(site.status).toBe(403);
       const curl = await send('pending', r); // a bearer key, no Origin header: passes the origin guard, then the scope check
       expect(curl.json.code).not.toBe('cross_origin_refused');
@@ -158,8 +158,12 @@ describe('kit #3 across sorters (lists)', () => {
   });
 });
 
-test.skipIf(!existsSync('/home/box/.local/bin/gitleaks') && !process.env.CI)('kit #9 secrets scan: gitleaks finds nothing in the repo folder', () => {
-  const bin = existsSync('/home/box/.local/bin/gitleaks') ? '/home/box/.local/bin/gitleaks' : 'gitleaks';
+// gitleaks from $GITLEAKS_BIN or PATH. Required in CI (the scanner job installs a checksum-verified 8.28.0); skipped
+// locally only when no binary is available.
+const GITLEAKS = process.env.GITLEAKS_BIN || 'gitleaks';
+const haveGitleaks = (() => { try { execFileSync(GITLEAKS, ['version'], { stdio: 'pipe' }); return true; } catch { return false; } })();
+test.skipIf(!haveGitleaks && !process.env.CI)('kit #9 secrets scan: gitleaks finds nothing in the repo folder', () => {
+  const bin = GITLEAKS;
   // dir scan, redacted, gitignored files excluded via .gitleaksignore paths in .gitleaks.toml
   execFileSync(bin, ['dir', '.', '--redact', '--no-banner', '--config', '.gitleaks.toml', '--exit-code', '1'], { stdio: 'pipe' });
 });

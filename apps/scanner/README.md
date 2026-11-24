@@ -23,12 +23,11 @@ Headless, API-first backend for Part Scanner v2. Any screen (Web Boss's UI, a ph
 ```bash
 npm ci
 npm run check        # spec → spectral lint → vitest → gitleaks
-npm run dev:tokens   # fake local pts_test_ tokens into .dev.vars (git-ignored)
-npm run db:local && npm run dev   # http://127.0.0.1:4794/api/v1/scanner/me
+npm run db:local && npm run dev   # fail-closed like production: every call 401 (no local auth switch exists)
 npm run mock         # Prism mock of the contract on :4795 (for UI work before the server)
 npm run docs         # Scalar reference from the contract
 ```
-Key auth works from curl (`Authorization: Bearer pts_test_...`); the same-origin check applies only to cookie writes.
+There is no local-auth or stub switch in shipped code (Web Boss review #2): the default is `DenyAllVerifier` and no recognizer (503). Tests inject fakes from `tests/helpers/` only. Key auth works from curl; the same-origin check applies only to writes carrying our session cookie (`__Secure-better-auth.session_token`); other cookies are ignored.
 
 ## Naming (ID) route limits, for A&S review
 A&S rules (12:01 PM CT) for `POST /scanner/batches/{batch_id}/cards` and `POST /scanner/cards/{card_id}/identify`. All values live in `src/scanner/limits.ts`.
@@ -36,14 +35,19 @@ A&S rules (12:01 PM CT) for `POST /scanner/batches/{batch_id}/cards` and `POST /
 | Rule | Value | Answer when broken |
 |---|---|---|
 | Auth required | valid key (A&S verifier) | 401 `api_key_missing` / `api_key_invalid` (problem+json) |
-| Cookie **and** API key on one request | refused | 400 `ambiguous_credentials` |
+| Session cookie **and** API key on one request (every route) | refused | 400 `ambiguous_credentials` |
 | Per caller, per minute (rolling 60 s, per user) | **20** (env `IDENTIFY_PER_MINUTE_LIMIT`) | 429 `rate_limited`, `limit: "minute"`, `Retry-After` |
 | Per caller, per hour (rolling, per user) | **100** (env `IDENTIFY_HOURLY_LIMIT`) | 429 `rate_limited`, `limit: "hourly"`, `Retry-After` |
-| Platform rate-limit hook (per user + key) | stub allows all; A&S plugs in | 429 `rate_limited`, `Retry-After` |
-| Whole request body | **400 KB** | 413 `body_too_large` |
+| All callers together, per minute / per hour | **60 / 600** | 429 `rate_limited`, `limit: "global_minute"` / `"global_hourly"` |
+| How counted | one row in `scan_identify_calls`, reserved atomically **before** each recognizer call (failed calls count) | |
+| Platform rate-limit hook (per user + key) | placeholder allows all; A&S plugs in | 429 `rate_limited`, `Retry-After` |
+| No recognizer configured | `RECOGNIZER` unset → | 503 `recognizer_not_configured` |
+| Whole request body (bytes actually received, after auth) | **400 KB** | 413 `body_too_large` |
 | One crop file | **300 KB**, image types only | 413 `crop_too_large` / 400 |
 | Crops per request | **1** | 400 `too_many_crops` |
-| Every other route: JSON body | **256 KB**, no image data | 413 `body_too_large` / 415 |
+| Every other route: JSON body (bytes received) | **256 KB**, no image data | 413 `body_too_large` / 415 |
+| Events per batch | **5,000** | 409 `batch_event_limit` (sync: rejected) |
+| Sync payloads | allow-listed keys per event type; same text limits as routes (name 60, batch note 500, card note 200, drawer code 40) | rejected `unknown_payload_key` / `bad_note` |
 
 Why 20/min: a phone photo usually has 5–15 parts, each one crop; 20/min lets a sorter finish one busy photo without waiting but stops a runaway loop well below the free recognizer tier.
 

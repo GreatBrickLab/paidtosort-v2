@@ -3,7 +3,7 @@
 // This WIP follows the parent's Nov 24 11:38 AM instruction (problem+json). Swapping shapes = change problemBody() only.
 export interface ProblemExtras {
   detail?: string; need?: string; batch_id?: string; card_id?: string; first_card_id?: string; count?: number;
-  retry_after_s?: number; limit?: 'hourly' | 'minute' | number; errors?: { field: string; message: string }[];
+  retry_after_s?: number; limit?: 'hourly' | 'minute' | 'global_minute' | 'global_hourly' | number; limit_bytes?: number; errors?: { field: string; message: string }[];
 }
 
 const TITLES: Record<string, string> = {

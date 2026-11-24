@@ -3,7 +3,8 @@
 //     verify(request) -> Principal { user_id, role, scopes, ... }   or null (→ 401)
 // Scope checks (→ 403) use the scopes A&S returns. Nothing here issues, stores, hashes or rotates keys, and there is no
 // key table. Chris's rule (Nov 24 11:24 AM): everybody using the API needs a key, so every route runs this check.
-// FakeLocalVerifier is for tests and local dev only. See BACKEND-REQUEST-AS-v2.md for what we ask A&S for.
+// Shipped default: DenyAllVerifier (every call 401) until A&S's verifier lands. The test stand-in lives only in
+// tests/helpers/fake-auth.ts and is injected by the test harness, never switched on by env. See BACKEND-REQUEST-AS-v2.md.
 import type { Context, MiddlewareHandler } from 'hono';
 import { problem } from './problem';
 
@@ -19,21 +20,6 @@ export interface Principal {
 
 /** The one interface A&S's auth replaces. Return null when the caller is not signed in / the key is not valid. */
 export interface AuthVerifier { verify(request: Request): Promise<Principal | null> }
-
-/**
- * Test/dev stand-in. Takes a map of opaque bearer tokens to principals (from the gitignored .dev.vars locally, or
- * built in memory by tests). It only accepts tokens shaped `pts_test_…`; no hashing, no storage, no issuance.
- */
-export class FakeLocalVerifier implements AuthVerifier {
-  constructor(private tokens: Record<string, Principal>) {}
-  static fromJson(json: string | undefined) {
-    try { const v = JSON.parse(json || '{}'); return new FakeLocalVerifier(v && typeof v === 'object' ? v : {}); } catch { return new FakeLocalVerifier({}); }
-  }
-  async verify(request: Request): Promise<Principal | null> {
-    const m = /^Bearer\s+(pts_test_[A-Za-z0-9]{16,64})$/i.exec(request.headers.get('authorization') ?? '');
-    return m ? this.tokens[m[1]] ?? null : null;
-  }
-}
 
 /** Every request must carry a valid key (401 otherwise). Sets the principal for later checks. */
 export function requireAuth(getVerifier: (c: Context) => AuthVerifier): MiddlewareHandler {

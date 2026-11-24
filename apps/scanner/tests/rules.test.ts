@@ -1,5 +1,6 @@
 // Guarded behaviors (see LOCKED.md). Each test names the rule it locks.
 import { ID_LIMITS } from '../src/scanner/limits';
+import { SESSION_COOKIE } from '../src/platform/security';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { type H, addCard, batchWithDrawer, cardForm, conforms, crop, setup } from './helpers/harness';
 
@@ -176,10 +177,10 @@ describe('Naming (server side, stub recognizer)', () => {
     });
     test('LOCK id-one-credential: cookie AND API key together → 400 ambiguous_credentials, namer not called', async () => {
       const { batch } = await batchWithDrawer(h); const before = h.recognizer.calls;
-      const r = conforms(await h.call('sorterA', 'POST', ID(batch.id), { form: cardForm({}), headers: { cookie: 'session=abc' } }), 'POST', T);
+      const r = conforms(await h.call('sorterA', 'POST', ID(batch.id), { form: cardForm({}), headers: { cookie: `${SESSION_COOKIE}=sess-test-value` } }), 'POST', T);
       expect(r.status).toBe(400); expect(r.json.code).toBe('ambiguous_credentials'); expect(h.recognizer.calls).toBe(before);
       const c = await addCard(h, batch.id);
-      const r2 = await h.call('sorterA', 'POST', `/scanner/cards/${c.json.id}/identify`, { form: crop(), headers: { cookie: 'session=abc' } });
+      const r2 = await h.call('sorterA', 'POST', `/scanner/cards/${c.json.id}/identify`, { form: crop(), headers: { cookie: `${SESSION_COOKIE}=sess-test-value` } });
       expect(r2.status).toBe(400); expect(r2.json.code).toBe('ambiguous_credentials');
     });
     test('LOCK id-per-minute-cap: over the per-minute cap → 429 rate_limited limit=minute + Retry-After ≤ 60', async () => {
@@ -221,7 +222,7 @@ describe('Naming (server side, stub recognizer)', () => {
     const rows = await h.db.prepare('SELECT payload_json FROM scan_events').all<{ payload_json: string }>();
     for (const r of rows.results) expect(r.payload_json).not.toMatch(/STUB:|jpegbytes|base64|data:image/);
     const tables = await h.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'scan%'").all<{ name: string }>();
-    expect(tables.results.map((t) => t.name).sort()).toEqual(['scan_batches', 'scan_events']); // no key, photo or file tables
+    expect(tables.results.map((t) => t.name).sort()).toEqual(['scan_batches', 'scan_events', 'scan_identify_calls']); // no key, photo or file tables (the rate table holds user id, time, request id only)
   });
 });
 

@@ -1,6 +1,7 @@
 // D1 access. One event list per batch is the single source of truth; scan_batches holds the cached summary.
 import type { StoredEvent } from './reducer';
 import type { BatchRow } from './views';
+import { MAX_EVENTS_PER_BATCH } from './limits';
 
 export interface NewEvent { client_event_id: string; type: string; payload: Record<string, unknown>; user_id: string; key_id: string | null; request_id: string | null; device_id: string | null; at: string }
 
@@ -33,7 +34,7 @@ export class Store {
     return r.results;
   }
 
-  async events(batchId: string, after = 0, limit = 100000): Promise<StoredEvent[]> {
+  async events(batchId: string, after = 0, limit = MAX_EVENTS_PER_BATCH + 1): Promise<StoredEvent[]> {
     const r = await this.db.prepare('SELECT seq, client_event_id, type, payload_json, user_id, key_id, device_id, at FROM scan_events WHERE batch_id = ? AND seq > ? ORDER BY seq LIMIT ?')
       .bind(batchId, after, limit).all<{ seq: number; client_event_id: string; type: string; payload_json: string; user_id: string; key_id: string | null; device_id: string | null; at: string }>();
     return r.results.map((x) => ({ seq: x.seq, client_event_id: x.client_event_id, type: x.type, payload: JSON.parse(x.payload_json), user_id: x.user_id, key_id: x.key_id, device_id: x.device_id, at: x.at }));
@@ -52,9 +53,26 @@ export class Store {
     return this.db.prepare("SELECT batch_id, payload_json, at FROM scan_events WHERE json_extract(payload_json, '$.export_id') = ? AND type = 'batch.exported'").bind(exportId).first<{ batch_id: string; payload_json: string; at: string }>();
   }
 
-  async recentIdentifies(user: string, sinceIso: string) {
-    const r = await this.db.prepare("SELECT COUNT(*) AS n, MIN(at) AS oldest FROM scan_events WHERE user_id = ? AND at >= ? AND type IN ('card.added','card.updated') AND json_extract(payload_json, '$.identify_call') = 1")
-      .bind(user, sinceIso).first<{ n: number; oldest: string | null }>();
+  /**
+   * G2: reserves one recognizer call BEFORE it is made, in ONE statement (atomic in D1/SQLite), so concurrent requests
+   * can't all slip under the cap and failed calls still count. Returns true when the slot was taken.
+   */
+  async reserveIdentify(o: { user: string; at: string; requestId: string; minuteAgo: string; hourAgo: string; perMinute: number; perHour: number; globalPerMinute: number; globalPerHour: number }) {
+    const r = await this.db.prepare(`INSERT INTO scan_identify_calls (user_id, at, request_id)
+      SELECT ?1, ?2, ?3
+      WHERE (SELECT COUNT(*) FROM scan_identify_calls WHERE user_id = ?1 AND at > ?4) < ?6
+        AND (SELECT COUNT(*) FROM scan_identify_calls WHERE user_id = ?1 AND at > ?5) < ?7
+        AND (SELECT COUNT(*) FROM scan_identify_calls WHERE at > ?4) < ?8
+        AND (SELECT COUNT(*) FROM scan_identify_calls WHERE at > ?5) < ?9`)
+      .bind(o.user, o.at, o.requestId, o.minuteAgo, o.hourAgo, o.perMinute, o.perHour, o.globalPerMinute, o.globalPerHour).run();
+    return (r.meta.changes ?? 0) === 1;
+  }
+
+  /** After a refused reservation: which window is full, and when its oldest call leaves it. */
+  async identifyWindow(user: string | null, sinceIso: string) {
+    const r = await (user
+      ? this.db.prepare('SELECT COUNT(*) AS n, MIN(at) AS oldest FROM scan_identify_calls WHERE user_id = ? AND at > ?').bind(user, sinceIso)
+      : this.db.prepare('SELECT COUNT(*) AS n, MIN(at) AS oldest FROM scan_identify_calls WHERE at > ?').bind(sinceIso)).first<{ n: number; oldest: string | null }>();
     return { n: r?.n ?? 0, oldest: r?.oldest ?? null };
   }
 

@@ -6,16 +6,17 @@ import { IdempotencyHeaders } from '../platform/idempotency';
 import * as S from './schemas';
 
 const PROBLEM_TEXT: Record<number, string> = {
-  400: '`invalid_request` (with `errors[]`) or `idempotency_key_missing`',
+  400: '`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`',
   401: '`api_key_missing` or `api_key_invalid`',
   403: '`forbidden`, with `need` naming the missing scope (or `owner`)',
   404: '`not_found` (also for batches the key may not see, so ids do not leak)',
-  409: 'A state rule refused the write (see `code`)',
+  409: 'A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full',
   413: '`crop_too_large` (crop over 300 KB) or `body_too_large`',
   415: '`unsupported_media_type` / `image_data_refused`: only the two naming routes accept image data',
   422: '`idempotency_mismatch`: this key was used with a different request',
-  429: '`id_service_busy` (the namer said wait; card saved as `error`, with `card_id`) or `rate_limited` (our own per-minute or hourly cap, `limit` says which; no card made)',
+  429: '`id_service_busy` (the namer said wait; card saved as `error`, with `card_id`) or `rate_limited` (per-person per-minute or hourly cap, or the shared cap for everyone; `limit` says which; no card made)',
   502: '`id_service_error`: the namer failed. The card is saved with state `error` (see `card_id`); Retry works.',
+  503: '`recognizer_not_configured`: part naming is not switched on in this environment. Nothing is saved.',
   504: '`id_service_timeout`: the namer took too long. The card is saved with state `error` (see `card_id`); Retry works.',
 };
 const problems = (...codes: number[]) => Object.fromEntries(codes.map((n) => [n, {
@@ -44,7 +45,7 @@ export const EventList = z.object({ object: z.literal('list'), data: z.array(S.E
 
 export const R = {
   getMe: createRoute({ method: 'get', path: '/scanner/me', operationId: 'scannerGetMe', tags: ['scanner-me'], summary: 'Who this key belongs to', description: 'The person behind the key, with role and scopes. Pending users (no role) get 403.',
-    responses: { 200: ok(S.Me, 'The key owner'), ...problems(401, 403) } }),
+    responses: { 200: ok(S.Me, 'The key owner'), ...problems(400, 401, 403) } }),
 
   listBatches: createRoute({ method: 'get', path: '/scanner/batches', operationId: 'scannerListBatches', tags: ['scanner-batches'], summary: 'List batches, newest first',
     description: 'Default: your own batches only (scope `batches:read`). `owner=all` needs `batches:read_all` (team, admin).',
@@ -97,7 +98,7 @@ export const R = {
   createCard: createRoute({ method: 'post', path: '/scanner/batches/{batch_id}/cards', operationId: 'scannerCreateCard', tags: ['scanner-cards'], summary: 'Send one crop; the server names it and makes a card',
     description: 'The crop (max 300 KB) is named by the free recognizer tier on the server, held in memory for that one call and never stored. Top score below 0.70, or the top two within 0.05, gives `check_by_hand` with no pre-pick. Recognizer trouble is never turned into "no match": the card is saved as `error` (so Retry works) and the answer is a real error (429 / 502 / 504) carrying `card_id`. Our own cap (100 per hour per person) gives 429 `rate_limited` and makes no card.',
     request: { ...W, params: BatchParams, body: { required: true, content: { 'multipart/form-data': { schema: S.CreateCardForm } } } },
-    responses: { 201: ok(S.Card, 'Card made and named', true), ...problems(400, 401, 403, 404, 409, 413, 422, 429, 502, 504) } }),
+    responses: { 201: ok(S.Card, 'Card made and named', true), ...problems(400, 401, 403, 404, 409, 413, 422, 429, 502, 503, 504) } }),
 
   getCard: createRoute({ method: 'get', path: '/scanner/cards/{card_id}', operationId: 'scannerGetCard', tags: ['scanner-cards'], summary: 'One card', description: 'Readable by whoever can read its batch.',
     request: { params: CardParams, query: z.object({ 'include[]': IncludeQuery }) }, responses: { 200: ok(S.Card, 'The card'), ...problems(400, 401, 403, 404) } }),
@@ -108,7 +109,7 @@ export const R = {
 
   retryIdentify: createRoute({ method: 'post', path: '/scanner/cards/{card_id}/identify', operationId: 'scannerRetryIdentify', tags: ['scanner-cards'], summary: 'Retry naming after a recognizer error', description: 'Send the same crop again. 409 `retry_not_needed` unless the card is in `error`.',
     request: { ...W, params: CardParams, body: { required: true, content: { 'multipart/form-data': { schema: S.RetryIdentifyForm } } } },
-    responses: { 200: ok(S.Card, 'Named', true), ...problems(400, 401, 403, 404, 409, 413, 422, 429, 502, 504) } }),
+    responses: { 200: ok(S.Card, 'Named', true), ...problems(400, 401, 403, 404, 409, 413, 422, 429, 502, 503, 504) } }),
 
   decideCard: createRoute({ method: 'post', path: '/scanner/cards/{card_id}/decision', operationId: 'scannerDecideCard', tags: ['scanner-cards'], summary: 'Approve, Drop, Set aside, or Unknown',
     description: "Allowed choices are in the card's `allowed_decisions`. Drop needs no confirm and no reason. A Parts We Need find only allows `set_aside`. Anything else is 409 `decision_not_allowed`.",
@@ -127,7 +128,7 @@ export const R = {
     request: { ...W, params: CardParams, body: jsonBody(S.NeedHelpBody) }, responses: { 200: ok(S.Card, 'Marked unknown', true), ...problems(...WRITE_PROBLEMS) } }),
 
   createExport: createRoute({ method: 'post', path: '/scanner/batches/{batch_id}/exports', operationId: 'scannerCreateExport', tags: ['scanner-exports'], summary: 'Make an export (BSX, CSV or JSON)',
-    description: 'Scope `exports:create` (admin only for staff). Approved cards only, one lot per drawer + type + part + color + condition. Dropped, set-aside (incl. Parts We Need), unknown, held and parted-out cards are left out. BSX: BrickStore XML, `Remarks` = drawer code, `Comments` = card note, no Price or Cost. Never overwrites: each export gets its own file name. 409 `not_finished` while open.',
+    description: 'Scope `exports:create` (admin only for staff). Approved cards only, one lot per drawer + type + part + color + condition. Dropped, set-aside (incl. Parts We Need), unknown, held and parted-out cards are left out. BSX: XML lot list, `Remarks` = drawer code, `Comments` = card note, no Price or Cost. Never overwrites: each export gets its own file name. 409 `not_finished` while open.',
     request: { ...W, params: BatchParams, body: jsonBody(S.CreateExportBody) }, responses: { 201: ok(S.Export, 'Export ready', true), ...problems(...WRITE_PROBLEMS) } }),
 
   getExport: createRoute({ method: 'get', path: '/scanner/exports/{export_id}', operationId: 'scannerGetExport', tags: ['scanner-exports'], summary: 'One export', description: 'Scope `exports:create`.',
@@ -143,5 +144,5 @@ export const R = {
     responses: { 200: ok(FindList, 'Finds'), ...problems(400, 401, 403) } }),
 
   getSpec: createRoute({ method: 'get', path: '/scanner/openapi.json', operationId: 'scannerGetSpec', tags: ['scanner-meta'], summary: 'This contract as JSON', description: 'The scanner part of the platform spec (DRAFT 1).',
-    responses: { 200: ok(z.object({}).passthrough(), 'OpenAPI 3.1 document'), ...problems(401, 403) } }),
+    responses: { 200: ok(z.object({}).passthrough(), 'OpenAPI 3.1 document'), ...problems(400, 401, 403) } }),
 };

@@ -9,7 +9,7 @@ info:
   description: |-
     **DRAFT 1** (Chris's process: draft → review → rebuilt twice into a clean final spec). Local work in progress; not deployed.
 
-    Shaped to merge into pts-v2's `/api/v1/openapi.json` (server `/api/v1`, paths under `/scanner/`, operationIds and components prefixed `scanner`/`Scanner`).
+    Merged into the platform spec at `/api/v1/openapi.json` (server `/api/v1`, paths under `/scanner/`, operationIds and components prefixed `scanner`/`Scanner`).
 
     Every request needs an API key (`Authorization: Bearer …`). Identity, roles and keys belong to Accounts and Security; the scanner only reads the scopes A&S gives it.
 
@@ -18,9 +18,7 @@ info:
     Photos are never uploaded or stored; one small crop per part is named on the server by the free recognizer tier and held in memory for that call only.
 servers:
   - url: /api/v1
-    description: Platform base (pts-v2)
-  - url: http://127.0.0.1:4794/api/v1
-    description: Local wrangler dev (--local)
+    description: Platform API base
 security:
   - api_key: []
 tags:
@@ -39,7 +37,7 @@ tags:
   - name: scanner-minifigs
     description: Minifig part-out, hold and need-help.
   - name: scanner-exports
-    description: BrickStore (BSX), CSV and JSON exports of approved lots (admin).
+    description: BSX (XML lot list), CSV and JSON exports of approved lots (admin).
   - name: scanner-finds
     description: "Team lists: held figs and Parts We Need finds."
   - name: scanner-meta
@@ -49,7 +47,7 @@ components:
     api_key:
       type: http
       scheme: bearer
-      description: Every caller needs a key. Issued and verified by Accounts and Security (no partner role yet; a scoped partner key (for example for Bricqer) can be added later because every query is owner-scoped). Local tests use fake `pts_test_…` tokens.
+      description: "Every caller needs an API key (`Authorization: Bearer …`), issued and verified by the platform account service. Keys carry scopes; every query is scoped to the key owner."
   schemas:
     ScannerMe:
       type: object
@@ -148,6 +146,8 @@ components:
               enum:
                 - hourly
                 - minute
+                - global_minute
+                - global_hourly
             - type: integer
         errors:
           type: array
@@ -1282,6 +1282,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ScannerMe"
+        "400":
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
         "401":
           description: "`api_key_missing` or `api_key_invalid`"
           headers:
@@ -1345,7 +1351,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerBatchList"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -1403,7 +1409,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerBatch"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -1425,7 +1431,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
         "409":
-          description: A state rule refused the write (see `code`)
+          description: A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full
           content:
             application/problem+json:
               schema:
@@ -1494,7 +1500,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerBatch"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -1557,7 +1563,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerBatch"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -1585,7 +1591,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
         "409":
-          description: A state rule refused the write (see `code`)
+          description: A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full
           content:
             application/problem+json:
               schema:
@@ -1639,7 +1645,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerFinishSummary"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -1667,7 +1673,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
         "409":
-          description: A state rule refused the write (see `code`)
+          description: A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full
           content:
             application/problem+json:
               schema:
@@ -1721,7 +1727,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerBatch"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -1749,7 +1755,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
         "409":
-          description: A state rule refused the write (see `code`)
+          description: A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full
           content:
             application/problem+json:
               schema:
@@ -1803,7 +1809,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerBatch"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -1831,7 +1837,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
         "409":
-          description: A state rule refused the write (see `code`)
+          description: A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full
           content:
             application/problem+json:
               schema:
@@ -1900,7 +1906,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerEventList"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -1962,7 +1968,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerAppendEventsResponse"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -1990,7 +1996,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
         "409":
-          description: A state rule refused the write (see `code`)
+          description: A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full
           content:
             application/problem+json:
               schema:
@@ -2051,7 +2057,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerDrawerList"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -2121,7 +2127,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerDrawer"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -2149,7 +2155,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
         "409":
-          description: A state rule refused the write (see `code`)
+          description: A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full
           content:
             application/problem+json:
               schema:
@@ -2209,7 +2215,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerPhoto"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -2237,7 +2243,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
         "409":
-          description: A state rule refused the write (see `code`)
+          description: A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full
           content:
             application/problem+json:
               schema:
@@ -2337,7 +2343,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerCardList"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -2400,7 +2406,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerCard"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -2428,7 +2434,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
         "409":
-          description: A state rule refused the write (see `code`)
+          description: A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full
           content:
             application/problem+json:
               schema:
@@ -2446,7 +2452,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
         "429":
-          description: "`id_service_busy` (the namer said wait; card saved as `error`, with `card_id`) or `rate_limited` (our own per-minute or hourly cap, `limit` says which; no card made)"
+          description: "`id_service_busy` (the namer said wait; card saved as `error`, with `card_id`) or `rate_limited` (per-person per-minute or hourly cap, or the shared cap for everyone; `limit` says which; no card made)"
           headers:
             Retry-After:
               schema:
@@ -2459,6 +2465,12 @@ paths:
                 $ref: "#/components/schemas/Problem"
         "502":
           description: "`id_service_error`: the namer failed. The card is saved with state `error` (see `card_id`); Retry works."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          description: "`recognizer_not_configured`: part naming is not switched on in this environment. Nothing is saved."
           content:
             application/problem+json:
               schema:
@@ -2503,7 +2515,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerCard"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -2566,7 +2578,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerCard"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -2594,7 +2606,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
         "409":
-          description: A state rule refused the write (see `code`)
+          description: A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full
           content:
             application/problem+json:
               schema:
@@ -2654,7 +2666,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerCard"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -2682,7 +2694,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
         "409":
-          description: A state rule refused the write (see `code`)
+          description: A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full
           content:
             application/problem+json:
               schema:
@@ -2700,7 +2712,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
         "429":
-          description: "`id_service_busy` (the namer said wait; card saved as `error`, with `card_id`) or `rate_limited` (our own per-minute or hourly cap, `limit` says which; no card made)"
+          description: "`id_service_busy` (the namer said wait; card saved as `error`, with `card_id`) or `rate_limited` (per-person per-minute or hourly cap, or the shared cap for everyone; `limit` says which; no card made)"
           headers:
             Retry-After:
               schema:
@@ -2713,6 +2725,12 @@ paths:
                 $ref: "#/components/schemas/Problem"
         "502":
           description: "`id_service_error`: the namer failed. The card is saved with state `error` (see `card_id`); Retry works."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          description: "`recognizer_not_configured`: part naming is not switched on in this environment. Nothing is saved."
           content:
             application/problem+json:
               schema:
@@ -2760,7 +2778,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerCard"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -2788,7 +2806,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
         "409":
-          description: A state rule refused the write (see `code`)
+          description: A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full
           content:
             application/problem+json:
               schema:
@@ -2842,7 +2860,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerCard"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -2870,7 +2888,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
         "409":
-          description: A state rule refused the write (see `code`)
+          description: A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full
           content:
             application/problem+json:
               schema:
@@ -2930,7 +2948,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerPartOutResult"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -2958,7 +2976,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
         "409":
-          description: A state rule refused the write (see `code`)
+          description: A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full
           content:
             application/problem+json:
               schema:
@@ -3018,7 +3036,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerCard"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -3046,7 +3064,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
         "409":
-          description: A state rule refused the write (see `code`)
+          description: A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full
           content:
             application/problem+json:
               schema:
@@ -3106,7 +3124,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerCard"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -3134,7 +3152,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
         "409":
-          description: A state rule refused the write (see `code`)
+          description: A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full
           content:
             application/problem+json:
               schema:
@@ -3163,7 +3181,7 @@ paths:
       tags:
         - scanner-exports
       summary: Make an export (BSX, CSV or JSON)
-      description: "Scope `exports:create` (admin only for staff). Approved cards only, one lot per drawer + type + part + color + condition. Dropped, set-aside (incl. Parts We Need), unknown, held and parted-out cards are left out. BSX: BrickStore XML, `Remarks` = drawer code, `Comments` = card note, no Price or Cost. Never overwrites: each export gets its own file name. 409 `not_finished` while open."
+      description: "Scope `exports:create` (admin only for staff). Approved cards only, one lot per drawer + type + part + color + condition. Dropped, set-aside (incl. Parts We Need), unknown, held and parted-out cards are left out. BSX: XML lot list, `Remarks` = drawer code, `Comments` = card note, no Price or Cost. Never overwrites: each export gets its own file name. 409 `not_finished` while open."
       parameters:
         - schema:
             $ref: "#/components/schemas/ScannerBatchId"
@@ -3194,7 +3212,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerExport"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -3222,7 +3240,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
         "409":
-          description: A state rule refused the write (see `code`)
+          description: A state rule refused the write (see `code`), including `batch_event_limit` when a batch is full
           content:
             application/problem+json:
               schema:
@@ -3266,7 +3284,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerExport"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -3325,7 +3343,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerExportFile"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -3393,7 +3411,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScannerFindList"
         "400":
-          description: "`invalid_request` (with `errors[]`) or `idempotency_key_missing`"
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
           content:
             application/problem+json:
               schema:
@@ -3430,6 +3448,12 @@ paths:
                 type: object
                 properties: {}
                 additionalProperties: {}
+        "400":
+          description: "`invalid_request` (with `errors[]`), `idempotency_key_missing`, `ambiguous_credentials` (session cookie and API key on one request) or `too_many_crops`"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
         "401":
           description: "`api_key_missing` or `api_key_invalid`"
           headers:

@@ -63,11 +63,13 @@ jobs:
           done
           node tests/contract.mjs http://127.0.0.1:8799 || { cat dev.log; exit 1; }
 
-  # Part Scanner v2 (apps/scanner). Optional second job, proposed in handoff/0002; does not change the required `check` job.
+  # Part Scanner v2 (apps/scanner). Second job; does not change the required `check` job.
   scanner:
     name: scanner
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      GITLEAKS_VERSION: "8.28.0"
     defaults:
       run:
         working-directory: apps/scanner
@@ -78,6 +80,16 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: apps/scanner/package-lock.json
+      - name: Install gitleaks (checksum-verified, same as the check job)
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          curl -sSfL -o gitleaks.tar.gz "${base}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o checksums.txt "${base}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          grep " gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz$" checksums.txt | sed 's/gitleaks_.*/gitleaks.tar.gz/' | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+          echo "GITLEAKS_BIN=${RUNNER_TEMP}/gitleaks" >> "$GITHUB_ENV"
       - run: npm ci --no-audit --no-fund
       - name: Typecheck
         run: npm run typecheck
@@ -85,9 +97,9 @@ jobs:
         run: npm run spec && git diff --exit-code contract/
       - name: Spectral lint (scanner rules, zero warnings)
         run: npm run lint:spec
-      - name: Tests (A&S security kit mirror, routes, rules, contract)
+      - name: Tests (A&S security kit mirror incl. gitleaks, routes, rules, review fixes, contract)
         run: npm test
-      - name: Pages bundle is rebuilt from the source (no drift)
+      - name: Pages bundle and third-party notices are rebuilt from the source (no drift)
         run: npm run bundle:pages && git diff --exit-code pages-bundle/
       - name: Platform spec has the current scanner contract
         working-directory: .

@@ -8,7 +8,7 @@ send_metrics = false
 workers_dev = false
 
 [vars]
-RECOGNIZER = "stub"            # "brickognize" would call the free public tier; tests and dev use the stub
+# RECOGNIZER is unset on purpose: naming answers 503 until A&S sets RECOGNIZER="brickognize" (test env first).
 IDENTIFY_HOURLY_LIMIT = "100"
 IDENTIFY_PER_MINUTE_LIMIT = "20"
 

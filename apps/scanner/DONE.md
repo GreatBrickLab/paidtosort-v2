@@ -30,7 +30,8 @@ A route is done when **all** of these are true and shown by a test in CI:
 | `GET /scanner/cards/{id}` | read | 404 to others |
 | `PATCH /scanner/cards/{id}` | owner | One `card.edited` event; colors limited to known colors for the part (422) |
 | `POST …/identify` | owner | Same crop rules; 409 `retry_not_needed` unless card is `error` |
-| Both naming routes (A&S 12:01 PM CT) | | 401 without auth; cookie+key → 400 `ambiguous_credentials`; 20/min and 100/hour per caller → 429 + `Retry-After`; body > 400 KB → 413 `body_too_large`; > 1 crop → 400 `too_many_crops`; namer never called when refused |
+| Every route (A&S review 12:17 PM CT) | | Auth before any body read (signed-out large upload → 401); size caps count received bytes; session cookie + key → 400; cookie writes need Origin = self or `Sec-Fetch-Site: same-origin`; only our session cookie counts; 5,000 events per batch |
+| Both naming routes (A&S 12:01 PM CT) | | 401 without auth; cookie+key → 400 `ambiguous_credentials`; 20/min and 100/hour per caller → 429 + `Retry-After`; body > 400 KB → 413 `body_too_large`; > 1 crop → 400 `too_many_crops`; namer never called when refused; slot reserved atomically before the call (failed calls count); shared cap 60/min, 600/h; 503 `recognizer_not_configured` when RECOGNIZER is unset |
 | `POST …/decision` | owner | Only `allowed_decisions`; Parts We Need find recorded |
 | `POST …/reopen` (card) | owner | Undo after Drop |
 | `POST …/part-out` | owner | Pieces become cards under the fig; no known pieces → 400 |

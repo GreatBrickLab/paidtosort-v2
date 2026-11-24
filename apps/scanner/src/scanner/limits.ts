@@ -14,9 +14,17 @@ export const ID_LIMITS = {
   perMinute: 20,
   /** Per caller (user), rolling hour. Over → 429 `rate_limited` + Retry-After. Env IDENTIFY_HOURLY_LIMIT. */
   perHour: 100,
+  /** All callers together, rolling 60 s (one free recognizer tier behind every sorter). 429 `limit: "global_minute"`. */
+  globalPerMinute: 60,
+  /** All callers together, rolling hour. 429 `limit: "global_hourly"`. */
+  globalPerHour: 600,
 } as const;
 /** Max JSON body on every other route (no images allowed there). Over → 413 `body_too_large`. */
 export const MAX_JSON_BODY_BYTES = 256 * 1024;
+/** Events per batch (G8): bounds replay cost. Over → 409 `batch_event_limit` (routes) or rejected (sync). */
+export const MAX_EVENTS_PER_BATCH = 5000;
+/** Text field limits shared by the routes and the sync endpoint (G7). */
+export const TEXT_LIMITS = { batchName: 60, batchNote: 500, cardNote: 200, drawerCode: 40, helpText: 500 } as const;
 
 /** Crops-per-request cap, checked after auth and before schema validation so the caller gets a clear code. */
 export function cropCountGuard(isIdRoute: (method: string, path: string) => boolean): MiddlewareHandler {

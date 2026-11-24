@@ -29,7 +29,7 @@ export const Problem = z.object({
   detail: z.string().optional(), instance: z.string().optional(), request_id: z.string(),
   need: z.string().optional().openapi({ description: 'Missing scope, or `owner`' }),
   batch_id: BatchId.optional(), card_id: CardId.optional(), first_card_id: CardId.optional(), count: z.number().int().optional(),
-  retry_after_s: z.number().int().min(0).optional(), limit: z.union([z.enum(['hourly', 'minute']), z.number().int()]).optional(),
+  retry_after_s: z.number().int().min(0).optional(), limit: z.union([z.enum(['hourly', 'minute', 'global_minute', 'global_hourly']), z.number().int()]).optional(),
   errors: z.array(z.object({ field: z.string(), message: z.string() })).optional(),
 }).passthrough().openapi('Problem', { description: 'RFC 9457 problem details with `code` and `request_id` extension members (one error contract, platform base #5)' });
 

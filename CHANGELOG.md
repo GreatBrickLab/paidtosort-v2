@@ -24,3 +24,7 @@ each day.
   generated contract, prebuilt Pages bundle), `/api/v1/scanner/*` mounted fail-closed (every call 401 until A&S
   auth), 28 scanner operations merged into spec/openapi.json, contract test checks each one signed out. No tables,
   no secrets, no deploy. Needs: A&S review, Web Boss merge.
+- 12:35 PM CT (proposed, PR #1 review fixes from Part Scanner v2, not merged): A&S M1/M1b/G1-G8 and Web Boss review
+  items. Auth before any body read; byte-counted size caps; atomic naming reservation with a shared cap; session-cookie-only
+  credential checks on every route; no local-auth or stub switch in shipped code; sync payload allow-list; 5,000 events per
+  batch; MIT license and third-party notices; scanner CI job installs checksum-verified gitleaks. No tables, no deploy.

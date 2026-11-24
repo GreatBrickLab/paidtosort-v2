@@ -6,9 +6,10 @@ import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { expect } from 'vitest';
 import { createApp } from '../../src/app';
-import { FakeLocalVerifier, type Principal } from '../../src/platform/auth';
+import type { Principal } from '../../src/platform/auth';
+import { FakeLocalVerifier } from './fake-auth';
 import { rand } from '../../src/platform/ids';
-import { StubRecognizer } from '../../src/scanner/adapters/recognizer';
+import { StubRecognizer } from './stub-recognizer';
 
 export const SPEC = JSON.parse(readFileSync(new URL('../../contract/openapi.json', import.meta.url), 'utf8'));
 const ajv = new Ajv2020({ strict: false, allErrors: true });
@@ -29,7 +30,7 @@ export type Who = keyof typeof PEOPLE;
 
 const SCHEMA_SQL = readFileSync(new URL('../../proposed-schema/0001_scan_tables.sql', import.meta.url), 'utf8');
 
-export async function setup(opts: { limit?: number; perMinute?: number; now?: () => Date; rateLimit?: import('../../src/platform/ratelimit').RateLimitHook } = {}) {
+export async function setup(opts: { limit?: number; perMinute?: number; globalPerMinute?: number; globalPerHour?: number; eventsPerBatch?: number; defaults?: boolean; defaultRecognizer?: boolean; now?: () => Date; rateLimit?: import('../../src/platform/ratelimit').RateLimitHook } = {}) {
   const mf = new Miniflare({ modules: true, script: 'export default { fetch() { return new Response(null) } }', d1Databases: ['DB'] });
   const db = await mf.getD1Database('DB');
   const stmts = SCHEMA_SQL.replace(/--[^\n]*/g, '').split(/;\s*\n/).map((x) => x.trim()).filter(Boolean);
@@ -38,16 +39,20 @@ export async function setup(opts: { limit?: number; perMinute?: number; now?: ()
   for (const [k, v] of Object.entries(PEOPLE)) { const t = `pts_test_${rand(32).replace(/[^A-Za-z0-9]/g, 'x')}`; tokens[t] = v; tokenOf[k as Who] = t; }
   const recognizer = new StubRecognizer();
   const logs: Record<string, unknown>[] = [];
-  const app = createApp({ verifier: new FakeLocalVerifier(tokens), deps: { recognizer, identifyHourlyLimit: opts.limit ?? 100, identifyPerMinuteLimit: opts.perMinute ?? 20, now: opts.now, rateLimit: opts.rateLimit }, log: (l) => logs.push(l) });
+  // `defaults: true` builds the app exactly as shipped (DenyAllVerifier, no recognizer configured): nothing injected.
+  const app = opts.defaults ? createApp({ log: (l) => logs.push(l) }) : createApp({ verifier: new FakeLocalVerifier(tokens), deps: { ...(opts.defaultRecognizer ? {} : { recognizer }), identifyHourlyLimit: opts.limit ?? 100, identifyPerMinuteLimit: opts.perMinute ?? 20,
+    identifyGlobalPerMinute: opts.globalPerMinute, identifyGlobalPerHour: opts.globalPerHour, eventsPerBatch: opts.eventsPerBatch, now: opts.now, rateLimit: opts.rateLimit }, log: (l) => logs.push(l) });
   const env = { DB: db };
 
-  async function call(who: Who | null, method: string, path: string, o: { body?: unknown; form?: FormData; key?: string | null; headers?: Record<string, string> } = {}) {
+  async function call(who: Who | null, method: string, path: string, o: { body?: unknown; form?: FormData; raw?: BodyInit; key?: string | null; headers?: Record<string, string>; host?: string } = {}) {
     const headers: Record<string, string> = { ...(o.headers ?? {}) };
     if (who) headers.authorization = `Bearer ${tokenOf[who]}`;
     if (['POST', 'PATCH'].includes(method) && o.key !== null) headers['idempotency-key'] = o.key ?? `k-${rand(16)}`;
     let body: BodyInit | undefined;
-    if (o.form) body = o.form; else if (o.body !== undefined) { body = JSON.stringify(o.body); headers['content-type'] = 'application/json'; }
-    const res = await app.request(`/api/v1${path}`, { method, headers, body }, env);
+    if (o.raw !== undefined) body = o.raw; else if (o.form) body = o.form; else if (o.body !== undefined) { body = JSON.stringify(o.body); headers['content-type'] = 'application/json'; }
+    const init: RequestInit & { duplex?: 'half' } = { method, headers, body };
+    if (body instanceof ReadableStream) init.duplex = 'half';
+    const res = await app.request(o.host ? `https://${o.host}/api/v1${path}` : `/api/v1${path}`, init, env);
     const text = await res.text();
     let json: any = null; try { json = JSON.parse(text); } catch { /* not json */ }
     return { status: res.status, headers: res.headers, text, json };
